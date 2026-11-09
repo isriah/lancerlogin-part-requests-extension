@@ -52,7 +52,7 @@ export function createStores() {
       return json(route, { items: [] });
     }
     note('andymark', request);
-    if (url.pathname === '/cart.js') return json(route, { items: [...s.cart].map(([variant_id, quantity]) => ({ variant_id, quantity, price: 5, title: 'A synthetic line' })) });
+    if (url.pathname === '/cart.js') return json(route, { items: [...s.cart].map(([variant_id, quantity]) => ({ variant_id, quantity, price: variant_id === 7002 ? 40 : 5, title: 'A synthetic line' })) });
     if (url.pathname === '/products/test-screw.js') return json(route, { handle: 'test-screw', variants: [{ id: 7001, sku: 'AM-TEST-25', price: 5, available: true }, { id: 7002, sku: 'AM-TEST-1', price: 40, available: true }] });
     if (url.pathname === '/products/test-screw') return html(route, page('A test screw', `<h1>A test screw</h1><script id="variant_metafield_data" type="application/json">{ ${Object.entries(AM_SOLD_IN).map(([id, n]) => `"${id}" : { "availabilityText": "", "orderedInQuantity": "${n}", "maxPerOrder": "0" }`).join(' , ')} }</script>`));
     if (url.pathname === '/cart') return html(route, page('Your cart', '<h1>Your cart</h1>', `fetch('/cart.js').then(reply => reply.json()).then(({ items }) => { if (items.length) fetch('/cart/update.js', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates: items.map(item => { const n = ${JSON.stringify(AM_SOLD_IN)}[item.variant_id]; return Math.max(Math.floor(item.quantity / n) * n, n); }) }) }); });`));
