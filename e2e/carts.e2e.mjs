@@ -3,7 +3,7 @@
 //
 // On Windows with Edge (the default there) Chrome's real permission prompt shows, so the window is headed and press-prompt-button.ps1 presses Allow
 // or Deny through UI Automation. Don't use the mouse during that part. Elsewhere, or with E2E_PROMPT=stub, the prompt is simulated, which proves less.
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -239,7 +239,47 @@ try {
   await shot(carts, 'orders');
   await carts.setViewportSize({ width: 375, height: 800 });
   check('Screen: no sideways scroll at phone width', await carts.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), await carts.evaluate(() => document.documentElement.scrollWidth));
+  // What the text occupies, because a table's header cells never overlap even when their words do.
+  const ordersLayout = () => carts.evaluate(() => {
+    const head = [...document.querySelectorAll('#orders-table thead th')];
+    const words = cell => { const range = document.createRange(); range.selectNodeContents(cell); return range.getBoundingClientRect(); };
+    const named = name => head.find(cell => cell.textContent.trim() === name);
+    const [item, qty, price, status] = ['Item', 'Qty', 'Unit price', 'Status'].map(named);
+    const table = document.getElementById('orders-table').getBoundingClientRect();
+    const frame = document.querySelector('.x-orders');
+    return {
+      itemRight: words(item).right, qtyLeft: words(qty).left, itemWidth: item.getBoundingClientRect().width, priceShown: !!price?.getClientRects().length,
+      priceCells: [...document.querySelectorAll('tr[data-order-row] .x-td-price')].filter(cell => cell.getClientRects().length).length,
+      // A row's cells and the vendor heading must end at the same edge, or the colspan has made a column no row uses.
+      vendorEnds: [...document.querySelectorAll('.x-vendor-row')].every(row => Math.abs(row.lastElementChild.getBoundingClientRect().right - table.right) < 1.5),
+      vendorStarts: [...document.querySelectorAll('.x-vendor-cell')].every(cell => Math.abs(cell.getBoundingClientRect().left - item.getBoundingClientRect().left) < 1.5),
+      statusEnds: Math.abs(status.getBoundingClientRect().right - table.right) < 1.5,
+      pillsClipped: [...document.querySelectorAll('.x-status-pill')].filter(pill => { const box = pill.getBoundingClientRect(), cell = pill.closest('td').getBoundingClientRect(); return box.right > cell.right + .5 || box.left < cell.left - .5 || pill.scrollWidth > pill.clientWidth + 1; }).map(pill => pill.textContent),
+      notesOutside: [...document.querySelectorAll('.x-row-note')].filter(note => [note, ...note.children].some(part => part.getBoundingClientRect().right > note.closest('td').getBoundingClientRect().right + .5)).map(note => note.textContent),
+      tableScrolls: frame.scrollWidth > frame.clientWidth + 1, pageScrolls: document.documentElement.scrollWidth > innerWidth + 1,
+      estimate: document.getElementById('selection-total').getClientRects().length > 0 && /^Estimated \$/.test(document.getElementById('selection-total').textContent),
+    };
+  });
+  // The headings follow the window's resize event, which arrives with the next frame.
+  const spansSettle = wanted => until(carts, span => [...document.querySelectorAll('.x-vendor-cell')].every(cell => cell.colSpan === span), 3000, wanted);
+  check('Phone: vendor headings span only the columns left', await spansSettle(3));
+  const phone = await ordersLayout();
+  // As tall as the page, so the capture has no scrollbar and shows the table at a phone's whole width.
+  await carts.setViewportSize({ width: 375, height: await carts.evaluate(() => document.documentElement.scrollHeight) });
+  await spansSettle(3);
+  await shot(carts, 'orders-phone-fixed', false);
+  await carts.setViewportSize({ width: 375, height: 800 });
+  check('Phone: the Item and Qty headers don\'t overlap', phone.itemRight <= phone.qtyLeft, phone);
+  check('Phone: the Item column has a readable width', phone.itemWidth >= 110, phone);
+  check('Phone: Unit price is hidden, and the estimate above the table stays', !phone.priceShown && !phone.priceCells && phone.estimate, phone);
+  check('Phone: vendor headings span the table, with no empty column left over', phone.vendorEnds && phone.vendorStarts && phone.statusEnds, phone);
+  check('Phone: status pills aren\'t clipped', !phone.pillsClipped.length, phone);
+  check('Phone: row notes stay inside the Item column', !phone.notesOutside.length, phone);
+  check('Phone: neither the table nor the page scrolls sideways', !phone.tableScrolls && !phone.pageScrolls, phone);
   await carts.setViewportSize({ width: 1366, height: 860 });
+  check('Desktop: vendor headings span every column again', await spansSettle(5));
+  const desktop = await ordersLayout();
+  check('Desktop: Unit price still shows, and vendor headings still span the table', desktop.priceShown && desktop.priceCells > 0 && desktop.vendorEnds && desktop.vendorStarts && desktop.statusEnds && !desktop.pageScrolls, desktop);
   await carts.close();
 
   // ---- Every answer of GET /orders.

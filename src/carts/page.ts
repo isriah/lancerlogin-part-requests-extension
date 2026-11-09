@@ -111,7 +111,7 @@ function rowNode(row: OrderRow): HTMLTableRowElement {
   const node = h('tr', {},
     h('td', {}, h('label', { className: 'x-row-check' }, box)), item,
     h('td', {}, order.quantity === null ? '-' : String(order.quantity)),
-    h('td', {}, order.unitPrice === null ? '-' : money(order.unitPrice)),
+    h('td', { className: 'x-td-price' }, order.unitPrice === null ? '-' : money(order.unitPrice)),
     h('td', { className: 'x-td-req' }, order.requesters.join(', ') || '-'),
     h('td', {}, pill(statusName, statusName === 'RUSH' ? 'warning' : '', 'x-status-pill')));
   node.dataset.orderRow = order.id;
@@ -147,10 +147,17 @@ function updateSelection(): void {
     all.indeterminate = on > 0 && on < open.length;
   }
 }
+/** A hidden column leaves the table's grid. A vendor heading that still spanned it would add an empty column, which takes its width from Item. */
+function fitVendorHeadings(): void {
+  const span = [...document.querySelectorAll('#orders-table thead th')].filter(cell => getComputedStyle(cell).display !== 'none').length - 1;
+  document.querySelectorAll<HTMLTableCellElement>('.x-vendor-cell').forEach(cell => { cell.colSpan = span; });
+}
+addEventListener('resize', fitVendorHeadings);
 function renderTable(): void {
   const table = el('orders-table');
   table.querySelectorAll('tbody').forEach(node => node.remove());
   table.append(...groups.map(groupNode));
+  fitVendorHeadings();
   updateSelection();
 }
 function renderPermission(): void {

@@ -249,6 +249,14 @@ html[data-kind="popup"] { font-size: 16px; }
   .x-results,.x-store-grid { grid-template-columns: minmax(0,1fr); }
   .x-col-req,.x-orders .x-td-req { display: none; }
 }
+/* A phone has room for the item or the price, and the estimate above the table still gives the total. */
+@media (max-width: 560px) {
+  .x-col-price,.x-orders .x-td-price { display: none; }
+  .x-col-qty { width: 3rem; }
+  .x-col-status { width: 6.8rem; }
+  .x-row-note { display: block; }
+  .x-row-note b { display: block; white-space: normal; }
+}
 
 /* Extension additions to the approved mockup's rules: the page shell, default colors, and states the mockup doesn't draw. */
 [hidden] { display: none !important; }
