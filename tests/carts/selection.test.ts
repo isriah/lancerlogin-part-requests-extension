@@ -10,6 +10,13 @@ describe('what starts ticked', () => {
   it.each([['NORMAL', true], ['RUSH', true], ['SLOW', false], ['INCOMPLETE', false]] as const)('%s starts %s', (statusGroup, on) => {
     expect(isTicked(rowFor(order({ statusGroup })), none)).toBe(on);
   });
+  it("an item already in someone's cart starts unticked, and a person can still tick it", () => {
+    const mark = { memberName: 'Test Student B', deviceLabel: 'Home laptop', quantity: 1, markedMs: 1, expiresMs: 2, ownDevice: false };
+    const row = rowFor(order({ id: 'm', statusGroup: 'NORMAL', cartMarks: [mark] }));
+    expect(row.blocked).toBeNull();
+    expect(isTicked(row, none)).toBe(false);
+    expect(isTicked(row, new Map([['m', true]]))).toBe(true);
+  });
   it('a person can tick SLOW and Incomplete, and untick the rest', () => {
     const slow = rowFor(order({ id: 's', statusGroup: 'SLOW' }));
     expect(isTicked(slow, new Map([['s', true]]))).toBe(true);

@@ -33,7 +33,8 @@ export function blockedReason(order: CartOrder, store: StoreMethod): string | nu
 export function rowFor(order: CartOrder): OrderRow {
   const store = storeForOrder(order);
   const blocked = blockedReason(order, store);
-  return { order, store, blocked, startsTicked: !blocked && startsTicked(order) };
+  // Already in someone's cart starts unticked, so it isn't bought twice by accident. It can still be ticked.
+  return { order, store, blocked, startsTicked: !blocked && startsTicked(order) && !order.cartMarks?.length };
 }
 /** Orders grouped by store, stores by name with the unknown ones last, keeping each store's orders as the list gave them. */
 export function groupOrders(orders: CartOrder[]): StoreGroup[] {
