@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { allStoreOrigins, STORES, storeForOrder, storeNamed } from '../../src/carts/registry';
-import { groupOrders, isTicked, rowFor, summarize } from '../../src/carts/selection';
+import { groupOrders, isTicked, rowFor, summarize, untickAll } from '../../src/carts/selection';
 import { isForbiddenUrl, allowedInTab, paceMs } from '../../src/carts/safety';
 import { BADGE_LABEL } from '../../src/carts/store-method';
 import { order } from './helpers';
@@ -160,5 +160,39 @@ describe('addresses a store tab refuses', () => {
   it('keeps a modest pace between lines', () => {
     expect(paceMs(() => 0)).toBeGreaterThanOrEqual(1000);
     expect(paceMs(() => 0.999)).toBeLessThan(3000);
+  });
+});
+
+describe('Untick all', () => {
+  const orders = [
+    order({ id: 'normal', statusGroup: 'NORMAL' }),
+    order({ id: 'rush', statusGroup: 'RUSH' }),
+    order({ id: 'slow', statusGroup: 'SLOW' }),
+    order({ id: 'blocked', statusGroup: 'NORMAL', quantity: null }),
+  ];
+  const ticked = (groups: ReturnType<typeof groupOrders>, ticks: Map<string, boolean>) => groups.flatMap(group => group.rows).filter(row => isTicked(row, ticks)).map(row => row.order.id);
+
+  it('unticks every row, including what started ticked and what someone ticked', () => {
+    const groups = groupOrders(orders), ticks = new Map([['slow', true]]);
+    expect(ticked(groups, ticks)).toEqual(['normal', 'rush', 'slow']);
+    untickAll(groups, ticks);
+    expect(ticked(groups, ticks)).toEqual([]);
+    expect(summarize(groups, ticks)).toMatchObject({ ticked: 0, total: 4, stores: 0, estimate: 0 });
+  });
+  it('leaves a row that can\'t be ticked out of it', () => {
+    const groups = groupOrders(orders), ticks = new Map<string, boolean>();
+    untickAll(groups, ticks);
+    expect(ticks.has('blocked')).toBe(false);
+  });
+  it('rows can be ticked again afterward', () => {
+    const groups = groupOrders(orders), ticks = new Map<string, boolean>();
+    untickAll(groups, ticks);
+    ticks.set('rush', true);
+    expect(ticked(groups, ticks)).toEqual(['rush']);
+  });
+  it('has nothing to do with no orders', () => {
+    const ticks = new Map<string, boolean>();
+    untickAll([], ticks);
+    expect(ticks.size).toBe(0);
   });
 });

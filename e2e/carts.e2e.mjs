@@ -478,6 +478,36 @@ try {
   await carts.close();
   check('Rounded up: no checkout request', stores.state.checkoutHits.length === 0, stores.state.checkoutHits);
 
+  // ---- Untick all.
+  fresh();
+  api.orders = [wcpOrder('w1'), wcpOrder('w2', { description: 'Test compliant wheel, 4 in.', sku: 'WCP-2001', productUrl: 'https://wcproducts.com/products/test-wheel' }), revOrder('r1'), revOrder('r2', { description: 'Test incomplete with no SKU', sku: null, quantity: null, unitPrice: null, status: 'Incomplete Request', statusGroup: 'INCOMPLETE' })];
+  carts = await openCarts();
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  const boxes = () => carts.$$eval('input[data-order]', list => list.filter(box => box.checked).map(box => box.dataset.order));
+  const groupBox = store => carts.$eval(`input[data-group="${store}"]`, box => ({ checked: box.checked, mixed: box.indeterminate }));
+  check('Untick all: sits with the selection count, and isn\'t styled as primary', await carts.isVisible('.x-sticky-copy #untick-all') && (await carts.textContent('#untick-all')) === 'Untick all' && !(await carts.$eval('#untick-all', node => node.classList.contains('ui-button--primary'))) && await carts.isEnabled('#untick-all'));
+  await shot(carts, 'untick-all', false);
+  check('Untick all: starts with the usual rows ticked', (await boxes()).join() === 'r1,w1,w2' && /3 of 4 items/.test(await carts.textContent('#selection-count')), await boxes());
+  await carts.setViewportSize({ width: 375, height: 800 });
+  check('Untick all: fits at phone width with no sideways scroll', await carts.isVisible('#untick-all') && await carts.evaluate(() => { const box = document.getElementById('untick-all').getBoundingClientRect(); return document.documentElement.scrollWidth <= innerWidth + 1 && box.left >= 0 && box.right <= innerWidth; }), await carts.evaluate(() => document.documentElement.scrollWidth));
+  await shot(carts, 'untick-all-phone', false);
+  await carts.setViewportSize({ width: 1366, height: 860 });
+  await carts.click('#untick-all');
+  check('Untick all: every row and group is unticked, and the count follows', !(await boxes()).length && /^0 of 4 items selected from 0 stores/.test(await carts.textContent('#selection-count')) && !(await groupBox('wcp')).checked && !(await groupBox('wcp')).mixed && !(await groupBox('rev')).checked && !(await groupBox('rev')).mixed, await carts.textContent('#selection-count'));
+  check('Untick all: Build carts and the button itself go disabled at zero', await carts.isDisabled('#build') && await carts.isDisabled('#untick-all'));
+  check('Untick all: the estimate follows', /^Estimated \$0\.00/.test(await carts.textContent('#selection-total')), await carts.textContent('#selection-total'));
+  await carts.click('input[data-order="w2"]');
+  check('Untick all: a row works afterward, with the group partly ticked', (await boxes()).join() === 'w2' && (await groupBox('wcp')).mixed && await carts.isEnabled('#build') && await carts.isEnabled('#untick-all'), await groupBox('wcp'));
+  await carts.click('input[data-group="rev"]');
+  check('Untick all: a group works afterward, and skips a row that can\'t be ticked', (await boxes()).join() === 'r1,w2' && /2 of 4 items/.test(await carts.textContent('#selection-count')) && (await groupBox('rev')).checked, await boxes());
+  await carts.click('#untick-all');
+  await carts.click('input[data-order="w1"]');
+  await carts.click('#build');
+  check('Untick all: disabled while building', await carts.isDisabled('#untick-all') && await carts.isDisabled('#build'));
+  await carts.waitForSelector('#results-view:not([hidden])', { timeout: 120000 });
+  check('Untick all: the build took only the row ticked after it', stores.state.adds().length === 1 && api.marks.map(mark => mark.orderId).join() === 'w1', stores.state.adds());
+  await carts.close();
+
   // A wall at the final read is not a failed build.
   fresh();
   stores.state.wcp.mode = 'wall-after-add';

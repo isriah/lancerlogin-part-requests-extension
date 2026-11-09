@@ -51,6 +51,10 @@ export function isTicked(row: OrderRow, ticks: ReadonlyMap<string, boolean>): bo
   if (row.blocked) return false;
   return ticks.get(row.order.id) ?? row.startsTicked;
 }
+/** Unticks every row that can be ticked. One that can't is never ticked anyway. */
+export function untickAll(groups: StoreGroup[], ticks: Map<string, boolean>): void {
+  for (const group of groups) for (const row of group.rows) if (!row.blocked) ticks.set(row.order.id, false);
+}
 export interface SelectionSummary { ticked: number; total: number; stores: number; estimate: number; withoutPrice: number }
 export function summarize(groups: StoreGroup[], ticks: ReadonlyMap<string, boolean>): SelectionSummary {
   let ticked = 0, total = 0, stores = 0, estimate = 0, withoutPrice = 0;

@@ -7,7 +7,7 @@ import { ChromeStoreTab } from './chrome-tab';
 import { allStoreOrigins, OTHER_STORE } from './registry';
 import { buildStore, checklistResult, marksFor, stopMessage, type ItemResult, type StoreResult } from './runner';
 import { CART_SETTLE_MS, paceMs } from './safety';
-import { groupOrders, isTicked, summarize, type OrderRow, type StoreGroup } from './selection';
+import { groupOrders, isTicked, summarize, untickAll, type OrderRow, type StoreGroup } from './selection';
 import { BADGE_LABEL, StoreStop, type StoreBadge, type StoreMethod } from './store-method';
 import type { CartMark, MarkInput, MarksOutcome, OrdersList, OrdersOutcome } from './types';
 
@@ -134,6 +134,7 @@ function updateSelection(): void {
   el('selection-count').textContent = building ? '' : `${summary.ticked} of ${summary.total} items selected from ${summary.stores} store${summary.stores === 1 ? '' : 's'}`;
   if (!building) el('selection-total').textContent = `Estimated ${money(summary.estimate)} before shipping and tax${summary.withoutPrice ? `, with ${summary.withoutPrice} item${summary.withoutPrice === 1 ? '' : 's'} without a price` : ''}`;
   el<HTMLButtonElement>('build').disabled = building || !summary.ticked;
+  el<HTMLButtonElement>('untick-all').disabled = building || !summary.ticked;
   el<HTMLButtonElement>('refresh').disabled = building;
   el('stop').hidden = !building;
   el('allow-later').hidden = building || !needingAccess().length;
@@ -264,6 +265,7 @@ el('allow-later').addEventListener('click', () => {
   }).catch(error => notice(errorText(error), 'error'));
 });
 el('refresh').addEventListener('click', () => { void load(true); });
+el('untick-all').addEventListener('click', () => { untickAll(groups, ticks); renderTable(); });
 el('stop').addEventListener('click', () => { stopRequested = true; el<HTMLButtonElement>('stop').disabled = true; el('selection-total').textContent = 'Stopping after this line.'; });
 
 /** Sends what a read-back confirmed. Nothing was recorded on a wait, so the same marks go again. Left over marks can be retried from the results. */
