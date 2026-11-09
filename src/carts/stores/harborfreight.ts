@@ -1,6 +1,6 @@
-// Harbor Freight: /search?q=<SKU> goes to the product, then its own quantity box and Add to Cart, then the cart page reads back. It has never run
-// against the real pages, because a fresh browser gets a Press & Hold bot check, which stops the store like any other wall. So the page shapes here
-// are from the research, and anything else stops or fails the line with nothing added. docs/CARTS.md says what the owner has to check.
+// Harbor Freight: /search?q=<SKU> goes to the product, then its own quantity box and Add to Cart, then the cart page reads back. The search, the product
+// page and the add ran for real in a signed-in Chrome. A fresh browser gets a Press & Hold bot check, which stops the store like any other wall. A real cart
+// line has no "SKU" text, so its SKU comes from its product link. Anything else stops or fails the line with nothing added. docs/CARTS.md has what's left to check.
 // The cart page is /checkout/cart, which safety.ts allows by this exact address only. Any other address there stops the store.
 // Owner decision 2026-11-09: a pickup or shipping choice that's already selected is kept, and flags the line. None selected, or a store or ZIP prompt, fails it.
 import { LineProblem, stopIf, type CartLine, type PageStop, type StoreMethod } from '../store-method';
@@ -40,14 +40,19 @@ export async function harborFreightReadProduct(sku: string, waitMs = 10_000): Pr
   }
 }
 /**
- * Injected on the cart page. Each quantity control belongs to the one SKU around it, and only the lines asked for are handed back. No SKU, price or name
- * of any other line leaves this function. "Empty" has to hold for a moment, because a page that fills itself in can say so before it has read the cart,
- * and a wrong zero would add the line twice.
+ * Injected on the cart page. Each quantity control belongs to the one SKU around it: the smallest part of the page around the control with a product link,
+ * or failing that "SKU n" text, and no other quantity control. Only the lines asked for are handed back. No SKU, price or name of any other line leaves this
+ * function. "Empty" has to hold for a moment, because a page that fills itself in can say so before it has read the cart, and a wrong zero would add the line twice.
  */
 export async function harborFreightReadCart(keys: string[], waitMs = 10_000, emptyHoldMs = 2000): Promise<CartLine[] | PageStop> {
   const started = Date.now();
   const shown = (node: Element) => { const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0; };
   const isQuantity = (node: Element) => /qty|quantity/i.test(`${node.getAttribute('name') ?? ''} ${node.id} ${node.getAttribute('aria-label') ?? ''} ${node.getAttribute('class') ?? ''} ${node.getAttribute('data-testid') ?? ''}`);
+  const pathOf = (link: Element) => { try { const url = new URL(link.getAttribute('href') ?? '', location.href); return url.hostname === location.hostname ? url.pathname : ''; } catch { return ''; } };
+  const skusIn = (area: Element) => [...new Set([
+    ...[...area.querySelectorAll('a[href]')].map(link => /-(\d{3,7})(?:-\d+)*\.html$/.exec(pathOf(link))?.[1] ?? '').filter(Boolean),
+    ...[...(area.textContent ?? '').matchAll(/SKU\s*#?:?\s*(\d{3,7})(?!\d)/gi)].map(match => match[1]),
+  ])];
   let emptySince: number | null = null;
   for (;;) {
     const text = (document.body?.innerText ?? document.body?.textContent ?? '').replace(/\s+/g, ' ');
@@ -58,8 +63,9 @@ export async function harborFreightReadCart(keys: string[], waitMs = 10_000, emp
       const boxes = [...document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),select')].filter(node => shown(node) && isQuantity(node)) as (HTMLInputElement | HTMLSelectElement)[];
       for (const box of boxes) {
         let around: Element | null = box.parentElement, skus: string[] = [];
-        while (around && !skus.length) {
-          skus = [...new Set([...(around.textContent ?? '').matchAll(/SKU\s*#?:?\s*(\d{3,7})(?!\d)/gi)].map(match => match[1]))];
+        // Once it holds another line's control too, whatever it names can't be said to be this line's.
+        while (around && !skus.length && !boxes.some(other => other !== box && around!.contains(other))) {
+          skus = skusIn(around);
           around = around.parentElement;
         }
         if (skus.length !== 1) return { kind: 'stop', reason: 'unexpected', detail: 'a cart line this could not read' };
@@ -68,7 +74,8 @@ export async function harborFreightReadCart(keys: string[], waitMs = 10_000, emp
         lines.set(skus[0], (lines.get(skus[0]) ?? 0) + quantity);
       }
       if (lines.size) {
-        const missed = keys.find(key => !lines.has(key) && new RegExp(`SKU\\s*#?:?\\s*${key}(?!\\d)`, 'i').test(text));
+        // This SKU's words or link are on the page with no line read for them. Calling that zero could add the line twice.
+        const missed = keys.find(key => !lines.has(key) && (new RegExp(`SKU\\s*#?:?\\s*${key}(?!\\d)`, 'i').test(text) || [...document.querySelectorAll('a[href]')].some(link => new RegExp(`-${key}(?:-\\d+)*\\.html$`).test(pathOf(link)))));
         if (missed) return { kind: 'stop', reason: 'unexpected', detail: 'a cart line this could not read' };
         return keys.filter(key => lines.has(key)).map(key => ({ key, quantity: lines.get(key)! }));
       }

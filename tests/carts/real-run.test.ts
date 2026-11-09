@@ -1,4 +1,4 @@
-// Facts from the first real run in a signed-in browser, one block per finding, using the markup shapes seen there. No real store is contacted.
+// Facts from the real runs in a signed-in browser, one block per finding, using the markup shapes seen there. No real store is contacted.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { interpretOrders } from '../../src/client';
 import { blockedReason, groupOrders, leftOutOf, rowFor } from '../../src/carts/selection';
@@ -6,8 +6,7 @@ import { buildStore, stopMessage } from '../../src/carts/runner';
 import { StoreStop, type StoreTab } from '../../src/carts/store-method';
 import { aliexpressPressAdd, aliexpressReadListing, isUsdPrice } from '../../src/carts/stores/aliexpress';
 import { amazonReadCart } from '../../src/carts/stores/amazon';
-import { bambuAddOnPage } from '../../src/carts/stores/bambu';
-import { harborFreightSku, harborfreight } from '../../src/carts/stores/harborfreight';
+import { harborFreightReadCart, harborFreightSku, harborfreight } from '../../src/carts/stores/harborfreight';
 import { mcmaster, mcmasterPasteLine, mcmasterReadCart } from '../../src/carts/stores/mcmaster';
 import { onlineMetalsReadCart } from '../../src/carts/stores/onlinemetals';
 import { powerwerxReadCart } from '../../src/carts/stores/powerwerx';
@@ -341,100 +340,6 @@ describe('5. Ali Express\'s price', () => {
   });
 });
 
-describe('6. BambuLab in a narrow window', () => {
-  const ID = '222', KEY = 'Test Filament - Beige (2) / Refill / 1kg';
-  const ld = `<script type="application/ld+json">${JSON.stringify({ '@type': 'ProductGroup', name: 'Test Filament', url: 'https://us.store.bambulab.com/products/test-filament', hasVariant: [{ name: KEY, sku: ID }, { name: 'Test Filament - White (1) / Refill / 1kg', sku: '111' }] })}</script>`;
-  const summary = (count = 1) => `<button type="button" class="summary"><span>Selected：</span><span>Beige (2) / Refill / 1kg</span><span>× ${count}</span></button>`;
-  const main = (id: string, value = '1') => `<div class="copy-hidden"><div><button type="button" data-action="decrease-quantity">-</button><input id="${id}" name="quantity" value="${value}"><button type="button">+</button></div></div>`;
-  const BAR = '<button id="add" type="submit" data-action="add-to-cart">Add to Cart</button><button id="buy" type="submit" data-action="buy-now">Buy Now</button>';
-  /** The sticky bar's one Add to Cart, beside hidden copies of the main box, one in its form. A bundle box is there too. */
-  const narrow = (value = '1') => `${ld}<a href="/cart" id="count"></a>${summary()}<form id="buy-form">${main('form-box', value)}${BAR}</form>${main('other-box', value)}<div class="bundle"><div><button>-</button><input name="quantity" value="1"></div></div>`;
-  const wire = (limit = 400) => {
-    const box = document.getElementById('form-box') as HTMLInputElement, sent: number[] = [], buy = vi.fn();
-    let counted = Number(box.value);
-    box.addEventListener('focusout', () => {
-      counted = Math.min(Number(box.value) || 1, limit);
-      box.value = String(counted);
-      document.querySelector('.summary span:last-child')!.textContent = `× ${counted}`;
-    });
-    document.getElementById('buy-form')!.addEventListener('submit', event => event.preventDefault());
-    document.getElementById('add')!.addEventListener('click', () => { sent.push(counted); document.getElementById('count')!.textContent = String(sent.reduce((a, b) => a + b, 0)); });
-    document.getElementById('buy')!.addEventListener('click', buy);
-    return { sent, buy, box };
-  };
-  beforeEach(() => history.pushState({}, '', `/products/test-filament?id=${ID}`));
-  it('quantity 1, with the hidden box already at 1, presses the one Add to Cart', async () => {
-    document.body.innerHTML = narrow();
-    const { sent, buy } = wire();
-    expect(await bambuAddOnPage(ID, KEY, 1, 1000)).toEqual({ kind: 'sent', cartRose: true });
-    expect(sent).toEqual([1]);
-    expect(buy).not.toHaveBeenCalled();
-  });
-  describe('as on the real page, where the bar\'s button has no form', () => {
-    const formless = (first = '1', second = '1') => `${ld}<a href="/cart" id="count"></a>${summary()}${main('box-a', first)}${main('box-b', second)}${BAR}`;
-    const press = () => { const sent = vi.fn(), buy = vi.fn(); document.getElementById('add')!.addEventListener('click', () => { sent(); document.getElementById('count')!.textContent = '1'; }); document.getElementById('buy')!.addEventListener('click', buy); return { sent, buy }; };
-    it('quantity 1 presses Add to Cart, with every hidden copy already at 1', async () => {
-      document.body.innerHTML = formless();
-      const { sent, buy } = press();
-      expect(await bambuAddOnPage(ID, KEY, 1, 1000)).toEqual({ kind: 'sent', cartRose: true });
-      expect(sent).toHaveBeenCalledOnce();
-      expect(buy).not.toHaveBeenCalled();
-    });
-    it('another quantity is refused, says to widen the window, and changes no box', async () => {
-      document.body.innerHTML = formless();
-      const { sent, buy } = press();
-      const answer = await bambuAddOnPage(ID, KEY, 3, 300);
-      expect(answer).toMatchObject({ kind: 'refused', message: expect.stringMatching(/narrow.*quantity of 3.*wider/i) });
-      expect(sent).not.toHaveBeenCalled();
-      expect(buy).not.toHaveBeenCalled();
-      expect((document.getElementById('box-a') as HTMLInputElement).value).toBe('1');
-    });
-    it('quantity 1 is refused when a hidden copy says something else', async () => {
-      document.body.innerHTML = formless('1', '2');
-      const { sent } = press();
-      expect(await bambuAddOnPage(ID, KEY, 1, 300)).toMatchObject({ kind: 'refused' });
-      expect(sent).not.toHaveBeenCalled();
-    });
-  });
-  it('another quantity goes in the hidden box of the button\'s form, and no other', async () => {
-    document.body.innerHTML = narrow();
-    const { sent, buy } = wire();
-    expect(await bambuAddOnPage(ID, KEY, 3, 2000)).toEqual({ kind: 'sent', cartRose: true });
-    expect(sent).toEqual([3]);
-    expect(buy).not.toHaveBeenCalled();
-    expect((document.getElementById('other-box') as HTMLInputElement).value).toBe('1');
-    expect((document.querySelector('.bundle input') as HTMLInputElement).value).toBe('1');
-  });
-  it('refuses clearly when the hidden box won\'t keep the number', async () => {
-    document.body.innerHTML = narrow();
-    const { sent, buy } = wire();
-    document.getElementById('form-box')!.addEventListener('input', event => { (event.target as HTMLInputElement).value = '1'; });
-    expect(await bambuAddOnPage(ID, KEY, 3, 500)).toMatchObject({ kind: 'refused', message: expect.stringMatching(/quantity of 3/) });
-    expect(sent).toEqual([]);
-    expect(buy).not.toHaveBeenCalled();
-  });
-  it('fails closed with two hidden boxes in its form, or none', async () => {
-    document.body.innerHTML = `${ld}${summary()}<form>${main('a')}${main('b')}${BAR}</form>`;
-    expect(await bambuAddOnPage(ID, KEY, 1, 300)).toMatchObject({ kind: 'refused', message: expect.stringMatching(/one clear quantity box/) });
-    document.body.innerHTML = `${ld}${summary()}<form>${BAR}</form>${main('a')}`;
-    expect(await bambuAddOnPage(ID, KEY, 1, 300)).toMatchObject({ kind: 'refused', message: expect.stringMatching(/one clear quantity box/) });
-  });
-  it('never takes Buy Now for Add to Cart, whatever it says', async () => {
-    document.body.innerHTML = `${ld}${summary()}<form>${main('a')}<button id="buy" type="submit" data-action="buy-now">Add to Cart</button></form>`;
-    const buy = vi.fn();
-    document.getElementById('buy')!.addEventListener('click', buy);
-    expect(await bambuAddOnPage(ID, KEY, 1, 300)).toMatchObject({ kind: 'refused', message: expect.stringMatching(/didn't offer Add to Cart/) });
-    expect(buy).not.toHaveBeenCalled();
-  });
-  it('still needs the page to say which option is selected', async () => {
-    document.body.innerHTML = `${ld}<form>${main('a')}${BAR}</form>`;
-    const add = vi.fn();
-    document.getElementById('add')!.addEventListener('click', add);
-    expect(await bambuAddOnPage(ID, KEY, 1, 300)).toMatchObject({ kind: 'refused', message: expect.stringMatching(/which option is selected/) });
-    expect(add).not.toHaveBeenCalled();
-  });
-});
-
 describe('7. PowerWerx\'s cart row', () => {
   const row = (sku: string, extra = '', quantity = '1') => `<tr class="apt-row" data-hub-row data-qty="1"><td><span class="apt-row-sku">${sku}</span></td><td><input class="apt-qty-input" data-qty-input value="${quantity}"></td><td>$99.99 ea</td>${extra}</tr>`;
   const cart = (rows: string, count = 1) => `<div id="cartPaneRoot"><span id="hubPaneData" data-count="${count}"></span><table><tbody>${rows}</tbody></table></div>`;
@@ -467,6 +372,133 @@ describe('7. PowerWerx\'s cart row', () => {
   });
 });
 
+describe('run 2: Harbor Freight\'s cart line has no SKU text', () => {
+  const SKU = '94725', HREF = '/sae-and-metric-long-reach-hex-key-set-36-piece-94725.html';
+  /** As seen: the link twice, a select with the quantity, and no "SKU" anywhere. */
+  const line = (index: number, href: string, quantity: number) => `<div class="line"><a href="${href}"><img alt="">Picture</a><div><button>Remove</button><a href="${href}">PITTSBURGH SAE And Metric Long-Reach Hex Key Set, 36-Piece</a></div><label>Qty: <select id="quantity${index}">${[1, 2, 3, 4].map(n => `<option value="${n}"${n === quantity ? ' selected' : ''}>${n}</option>`).join('')}</select></label></div>`;
+  const cart = (rows: string) => `<h1>My Cart (1 Items)</h1>${rows}<a href="/checkout/shipping">Checkout</a>`;
+  const read = (keys = [SKU]) => harborFreightReadCart(keys, 0, 0);
+  beforeEach(() => at('/checkout/cart'));
+  it('reads the SKU from the link and the quantity from the select', async () => {
+    document.body.innerHTML = cart(line(0, HREF, 1));
+    expect(await read()).toEqual([{ key: SKU, quantity: 1 }]);
+    document.body.innerHTML = cart(line(0, HREF, 3));
+    expect(await read()).toEqual([{ key: SKU, quantity: 3 }]);
+  });
+  it('hands back only the line asked for, and adds up one SKU on two lines', async () => {
+    document.body.innerHTML = cart(line(0, HREF, 2) + line(1, '/other-thing-11111.html', 4));
+    const lines = await read();
+    expect(lines).toEqual([{ key: SKU, quantity: 2 }]);
+    expect(JSON.stringify(lines)).not.toMatch(/11111/);
+    document.body.innerHTML = cart(line(0, HREF, 2) + line(1, HREF, 1));
+    expect(await read()).toEqual([{ key: SKU, quantity: 3 }]);
+  });
+  it('another line\'s item isn\'t this line', async () => {
+    document.body.innerHTML = cart(line(0, '/other-thing-11111.html', 4));
+    expect(await read()).toEqual([]);
+  });
+  it('a title with a short number, or a suffix after the SKU, still gives the SKU', async () => {
+    document.body.innerHTML = cart(line(0, '/set-36-piece-94725-2.html', 1));
+    expect(await read()).toEqual([{ key: SKU, quantity: 1 }]);
+  });
+  it('stops on a line with two different product links', async () => {
+    document.body.innerHTML = cart('<div><a href="/a-11111.html">A</a><a href="/b-22222.html">B</a><select id="quantity0"><option selected>1</option></select></div>');
+    expect(await read()).toMatchObject({ kind: 'stop', reason: 'unexpected', detail: 'a cart line this could not read' });
+  });
+  it('stops when a link and SKU text disagree', async () => {
+    document.body.innerHTML = cart('<div><a href="/a-11111.html">A</a><span>SKU 22222</span><select id="quantity0"><option selected>1</option></select></div>');
+    expect(await read()).toMatchObject({ kind: 'stop', detail: 'a cart line this could not read' });
+  });
+  it('stops on a control with no link or SKU of its own, rather than borrowing a neighbor\'s or the page\'s', async () => {
+    document.body.innerHTML = cart(`<div id="list"><div><select id="quantity0"><option selected>1</option></select></div>${line(1, HREF, 2)}</div>`);
+    expect(await read()).toMatchObject({ kind: 'stop', detail: 'a cart line this could not read' });
+    document.body.innerHTML = `<a href="${HREF}">Promoted</a><div><select id="quantity0"><option selected>1</option></select></div>`;
+    expect(await read(['11111'])).toEqual([]);
+  });
+  it('still falls back to "SKU n" text, with no product link', async () => {
+    document.body.innerHTML = cart('<div><a href="/help">Help</a><span>SKU 94725</span> <select id="quantity0"><option selected>2</option></select></div>');
+    expect(await read()).toEqual([{ key: SKU, quantity: 2 }]);
+  });
+  it('a key whose link is on the page with no line read for it stops, instead of reading zero', async () => {
+    document.body.innerHTML = cart(`${line(0, '/other-thing-11111.html', 4)}<a href="${HREF}">Hex key set</a>`);
+    expect(await read()).toMatchObject({ kind: 'stop', detail: 'a cart line this could not read' });
+    // A link ending in two numbers reads as the first, so the second is on the page with no line.
+    document.body.innerHTML = cart(line(0, '/thing-11111-94725.html', 4));
+    expect(await read()).toMatchObject({ kind: 'stop', detail: 'a cart line this could not read' });
+  });
+  it('the real empty page reads as empty', async () => {
+    document.body.innerHTML = '<h1>My Cart (0 Items)</h1><p>Your cart is empty.</p>';
+    expect(await read()).toEqual([]);
+  });
+  it('a whole build with the real line: added once, confirmed, and a second build adds nothing', async () => {
+    const held = { quantity: 0, adds: [] as number[] };
+    const tab: StoreTab = {
+      ...hereTab,
+      async goto(url) {
+        const { pathname } = new URL(url);
+        if (pathname === '/checkout/cart') { at(pathname, held.quantity ? cart(line(0, HREF, held.quantity)) : '<h1>My Cart (0 Items)</h1><p>Your cart is empty.</p>'); return; }
+        at(HREF, `<a href="/checkout/cart" aria-label="Cart"><span id="count">${held.quantity}</span></a><main><h1>Hex key set</h1><p>SKU: ${SKU}</p><input id="qty" name="qty" value="1"><button id="add">Add to Cart</button></main>`);
+        document.getElementById('add')!.addEventListener('click', () => { const n = Number((document.getElementById('qty') as HTMLInputElement).value); held.adds.push(n); held.quantity += n; document.getElementById('count')!.textContent = String(held.quantity); });
+      },
+    };
+    const line1 = order({ vendor: 'Harbor Freight', urlVendor: 'Harbor Freight', sku: SKU, productUrl: `https://www.harborfreight.com${HREF}`, quantity: 1, unitPrice: null });
+    const first = await buildStore(harborfreight, harborfreight.steps!, [line1], tab, options);
+    expect(first.stopped).toBeUndefined();
+    expect(first.items[0]).toMatchObject({ outcome: 'added', confirmed: true });
+    const second = await buildStore(harborfreight, harborfreight.steps!, [line1], tab, options);
+    expect(second.items[0]).toMatchObject({ outcome: 'flagged', confirmed: true, message: expect.stringMatching(/Already in the cart/) });
+    expect(held.adds).toEqual([1]);
+  }, 30_000);
+});
+
+describe('run 2: Ali Express\'s mini-cart on the listing page', () => {
+  const ITEM = '3256802967050384', PATH = `/item/${ITEM}.html`;
+  const PRICE = '<div class="price-default--currentWrap--A_MNgCG">$0.46</div>';
+  /** As seen: the listing's box and buttons in their own wraps, and two rows of the side mini-cart with boxes of their own. */
+  const action = '<div class="action--wrap--abc"><input id="own" class="comet-v2-input-number-input" value="1"></div><div class="action--stickyWrap--abc"><button id="buy">Buy now</button><button id="add"><span>Add to cart</span></button></div>';
+  const miniRow = (extra = '') => `<div class="cart-product"><a href="/item/1111.html">Other</a><input class="comet-v2-input-number-input" value="5">${extra}</div>`;
+  const page = (extra = '') => `<h1>Solder wire</h1>${PRICE}${action}<aside>${miniRow(extra)}${miniRow()}</aside>`;
+  const watch = () => {
+    const add = vi.fn(), buy = vi.fn(), set = vi.fn();
+    document.getElementById('add')!.addEventListener('click', add);
+    document.getElementById('buy')!.addEventListener('click', buy);
+    document.querySelectorAll('.cart-product input').forEach(node => node.addEventListener('input', set));
+    return { add, buy, set };
+  };
+  it('sets the listing\'s own box and leaves the mini-cart\'s alone', async () => {
+    at(PATH, page());
+    const { add, buy, set } = watch();
+    expect(await aliexpressPressAdd(ITEM, [], 2, 200, 10)).toEqual({ kind: 'sent' });
+    expect((document.getElementById('own') as HTMLInputElement).value).toBe('2');
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(buy).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
+    expect([...document.querySelectorAll('.cart-product input')].map(node => (node as HTMLInputElement).value)).toEqual(['5', '5']);
+  });
+  it('an Add to cart inside the mini-cart doesn\'t count, or get pressed', async () => {
+    at(PATH, page('<button id="mini"><span>Add to cart</span></button>'));
+    const mini = vi.fn();
+    document.getElementById('mini')!.addEventListener('click', mini);
+    expect(await aliexpressPressAdd(ITEM, [], 1, 200, 10)).toEqual({ kind: 'sent' });
+    expect(mini).not.toHaveBeenCalled();
+    at(PATH, `<h1>Solder wire</h1>${PRICE}<aside>${miniRow('<button><span>Add to cart</span></button>')}</aside>`);
+    expect(await aliexpressReadListing(ITEM, 0)).toMatchObject({ kind: 'not-offered' });
+    expect(await aliexpressPressAdd(ITEM, [], 1, 0, 10)).toMatchObject({ kind: 'refused', message: expect.stringMatching(/no Add to cart/) });
+  });
+  it('a price, or an option in a mini-cart row, isn\'t the listing\'s', async () => {
+    const inRow = '<div class="price--current--x">C$9.00</div><div class="sku-item--x" data-sku-row><div data-sku-col title="Other">Other</div></div>';
+    at(PATH, `<aside>${miniRow(inRow)}</aside><h1>Solder wire</h1>${PRICE}${action}`);
+    expect(await aliexpressReadListing(ITEM, 200)).toEqual({ kind: 'ok', rows: [], price: '$0.46' });
+    expect(await aliexpressPressAdd(ITEM, [], 2, 200, 10)).toEqual({ kind: 'sent' });
+  });
+  it('two boxes of the listing\'s own still refuse', async () => {
+    at(PATH, `${page()}<input class="comet-v2-input-number-input" value="1">`);
+    const { add } = watch();
+    expect(await aliexpressPressAdd(ITEM, [], 2, 200, 10)).toMatchObject({ kind: 'refused', message: expect.stringMatching(/one clear quantity box/) });
+    expect(add).not.toHaveBeenCalled();
+  });
+});
+
 describe('the changed functions stay self-contained', () => {
   it.each([
     ['mcmasterReadCart', mcmasterReadCart, ['1A1', 0, 0]],
@@ -476,7 +508,7 @@ describe('the changed functions stay self-contained', () => {
     ['powerwerxReadCart', powerwerxReadCart, [['1A1']]],
     ['aliexpressReadListing', aliexpressReadListing, ['1', 0]],
     ['aliexpressPressAdd', aliexpressPressAdd, ['1', [], 1, 0, 0]],
-    ['bambuAddOnPage', bambuAddOnPage, ['1', 'x', 1, 0]],
+    ['harborFreightReadCart', harborFreightReadCart, [['94725'], 0, 0]],
   ] as [string, (...args: unknown[]) => unknown, unknown[]][])('%s runs from its own text alone, as Chrome runs it', async (_name, func, args) => {
     document.body.innerHTML = '<h1>Nothing here</h1>';
     const copy = new Function(`return (${func.toString()})`)() as (...args: unknown[]) => unknown;

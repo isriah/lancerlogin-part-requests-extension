@@ -196,7 +196,7 @@ export function createStores() {
   }
   const aliListing = () => page('Test wire', `<h1>Test wire</h1><div class="price--current--x">$0.46</div>
     <div data-sku-row="14"><div data-sku-col="14-1" title="0.8mm (5Meter)" class="sku-item--text--x"><span>0.8mm (5Meter)</span></div><div data-sku-col="14-2" title="1.0mm (5Meter)" class="sku-item--text--x sku-item--selected--x"><span>1.0mm (5Meter)</span></div></div>
-    <input class="comet-v2-input-number-input" value="1"><button id="buy">Buy now</button><button id="add"><span>Add to cart</span></button>`, `
+    <input class="comet-v2-input-number-input" value="1"><button id="buy">Buy now</button><button id="add"><span>Add to cart</span></button><div class="cart-product"><a href="/item/3256800000000009.html">Mini-cart row</a><input class="comet-v2-input-number-input" value="4"></div>`, `
     document.querySelectorAll('[data-sku-col]').forEach(col => col.addEventListener('click', () => {
       document.querySelectorAll('[data-sku-col]').forEach(other => { other.className = 'sku-item--text--x'; });
       col.className = 'sku-item--text--x sku-item--selected--x';

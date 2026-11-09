@@ -15,7 +15,7 @@ const shots = process.env.E2E_SCREENSHOTS;
 const channel = process.env.E2E_CHANNEL || 'msedge';
 const SITE = 'https://team-site.example.test';
 const DEVICE_KEY = 'e2eFakeDeviceKey00000000000000000000000000x'.slice(0, 43);
-const STORES = ['https://www.homedepot.com/*', 'https://www.aliexpress.us/*', 'https://www.aliexpress.com/*', 'https://www.amazon.com/*', 'https://ambrosiafilament.com/*', 'https://andymark.com/*', 'https://us.store.bambulab.com/*', 'https://store.ctr-electronics.com/*', 'https://www.ferrulesdirect.com/*', 'https://www.harborfreight.com/*', 'https://www.mcmaster.com/*', 'https://www.onlinemetals.com/*', 'https://www.pololu.com/*', 'https://powerwerx.com/*', 'https://www.revrobotics.com/*', 'https://www.swervedrivespecialties.com/*', 'https://swervedrivespecialties.com/*', 'https://swyftrobotics.com/*', 'https://www.thethriftybot.com/*', 'https://www.vbeltguys.com/*', 'https://wcproducts.com/*', 'https://west3d.com/*'];
+const STORES = ['https://www.homedepot.com/*', 'https://www.aliexpress.us/*', 'https://www.aliexpress.com/*', 'https://www.amazon.com/*', 'https://ambrosiafilament.com/*', 'https://andymark.com/*', 'https://store.ctr-electronics.com/*', 'https://www.ferrulesdirect.com/*', 'https://www.harborfreight.com/*', 'https://www.mcmaster.com/*', 'https://www.onlinemetals.com/*', 'https://www.pololu.com/*', 'https://powerwerx.com/*', 'https://www.revrobotics.com/*', 'https://www.swervedrivespecialties.com/*', 'https://swervedrivespecialties.com/*', 'https://swyftrobotics.com/*', 'https://www.thethriftybot.com/*', 'https://www.vbeltguys.com/*', 'https://wcproducts.com/*', 'https://west3d.com/*'];
 // The same refusal as src/carts/safety.ts, which this script can't import. A unit test keeps the two alike.
 const NEVER = /checkout|action=buy|\/gp\/buy(\/|$|\?)|\/cart\/\d+:\d+|\/pay(ment)?(\/|$|\?)|place-?order/i;
 const HARBOR_FREIGHT_CART = 'https://www.harborfreight.com/checkout/cart';
@@ -42,7 +42,7 @@ const context = await chromium.launchPersistentContext(join(work, 'profile'), {
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, '--no-first-run', '--no-default-browser-check'],
 });
 // Bot checks appeared at these from automated profiles, so they are for a person's own browser. Nothing here may reach them.
-const OWNER_ONLY = /(^|\.)(homedepot|amazon|mcmaster|harborfreight|onlinemetals|powerwerx|bambulab|aliexpress)\.(com|us)$/i;
+const OWNER_ONLY = /(^|\.)(homedepot|amazon|mcmaster|harborfreight|onlinemetals|powerwerx|aliexpress)\.(com|us)$/i;
 const report = { navigations: [], checkoutNavigations: [], ownerOnly: [], embeddedBlocked: [], stages: {} };
 const fail = [];
 try {

@@ -1,6 +1,6 @@
-// Amazon's add link, /gp/aws/cart/add.html, then its confirm button when it shows one, then a read of /gp/cart/view.html. A signed-out browser gets a
-// sign-in page, which stops the store. The cart page's rows and subtotal were seen signed in. The add link and confirm page weren't, so those come from
-// public descriptions: anything that doesn't match exactly stops the store with nothing pressed. docs/CARTS.md says what the owner has to check.
+// Amazon's product page, /dp/<ASIN>: its quantity list and its own Add to cart button, then a read of /gp/cart/view.html. Amazon's add link did nothing for a
+// signed-in account, so it isn't used. These shapes, and the cart page's, were seen signed in, and the add worked by hand. A signed-out browser gets a sign-in
+// page, which stops the store. Anything that doesn't match exactly stops the store or fails the line with nothing pressed. docs/CARTS.md has what's left to check.
 import { isOnStore } from '../safety';
 import { LineProblem, StoreStop, stopIf, type CartLine, type PageStop, type StoreMethod, type StoreSteps, type StoreTab } from '../store-method';
 import type { CartOrder } from '../types';
@@ -21,7 +21,7 @@ export function amazonAsin(order: Pick<CartOrder, 'productUrl' | 'sku'>): { asin
   const fromLink = LINK_ASIN.exec(new URL(order.productUrl).pathname)?.[1]?.toUpperCase() ?? null;
   return { asin: fromLink ?? fromSku, conflict: !!fromLink && !!fromSku && fromLink !== fromSku };
 }
-export const amazonAddLink = (asin: string, quantity: number): string => `${HOME}/gp/aws/cart/add.html?ASIN.1=${encodeURIComponent(asin)}&Quantity.1=${quantity}`;
+export const amazonProductLink = (asin: string): string => `${HOME}/dp/${encodeURIComponent(asin)}`;
 
 /**
  * Injected after every load, ahead of anything else. The shared check can't see Amazon's sign-in page, which asks for an email with no password box and
@@ -69,38 +69,50 @@ export function amazonReadCart(keys: string[]): { lines: CartLine[]; total: numb
   return { lines: [...lines.values()], total };
 }
 /**
- * Injected on whatever the add link led to. Says which page it is, and with `press` also presses the confirm button. That button has to be the only
- * one labeled Add to Cart, in a form that names this ASIN and no other and has no way to buy. Anything else is refused and nothing is pressed.
+ * Injected on the product page. Checks that the page is this ASIN's and that its own Add to cart button goes where it should, and sets the quantity list. With
+ * `press` it also presses that one button. #buy-now-button sits in the same form and is never touched. The form's address has "buy" in it by name, so the address
+ * has to start with the exact path instead, and the word rule stays on the pressed control itself. A press has to lead to a new page, so a refusal at that
+ * point is a stop, because nothing is coming to wait for.
  */
-export function amazonAddPage(asin: string, quantity: number, press: boolean): { kind: 'confirm' | 'pressed' | 'landed' } | { kind: 'refused'; message: string } | PageStop {
-  const path = location.pathname;
-  if (path === '/gp/cart/view.html' || /^\/cart(\/|$)/.test(path) || path.startsWith('/gp/huc/')) return { kind: 'landed' };
-  if (path !== '/gp/aws/cart/add.html' && !path.startsWith('/associates/addtocart')) return { kind: 'stop', reason: 'unexpected', detail: 'a page the add link should not lead to' };
-  const stop = (detail: string): PageStop => ({ kind: 'stop', reason: 'unexpected', detail });
+export async function amazonProductPage(asin: string, quantity: number, press: boolean, waitMs = 5000): Promise<{ kind: 'ready' | 'pressed' } | { kind: 'refused'; message: string } | PageStop> {
+  const stop = (detail: string): PageStop => ({ kind: 'stop', reason: 'unexpected', detail, notSent: true });
+  const refused = (message: string) => press ? stop('a product page that changed before its button') : { kind: 'refused' as const, message };
   const shown = (node: Element) => { const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0; };
-  const alert = [...document.querySelectorAll('.a-alert-error, .a-box-error')].filter(shown).map(node => (node.textContent ?? '').replace(/\s+/g, ' ').trim()).find(Boolean);
-  if (alert) return { kind: 'refused', message: alert.slice(0, 300) };
+  const started = Date.now();
+  const controls = () => [...document.querySelectorAll('#add-to-cart-button')].filter(shown);
+  while (!controls().length && Date.now() - started < waitMs) await new Promise(done => setTimeout(done, 200));
+  const found = controls();
+  if (!found.length) return refused('Amazon doesn\'t offer Add to Cart on this item\'s page. It may be unavailable, or need an option chosen there, so nothing was added.');
+  if (found.length > 1) return stop('more than one Add to Cart button');
+  const add = found[0] as HTMLInputElement;
+  const form = add.form;
+  if (!form || form.id !== 'addToCart') return stop('an Add to Cart button in another kind of form');
+  let goes: URL | null = null;
+  try { goes = new URL(form.getAttribute('action') ?? '', location.href); } catch { /* No address, so this form isn't the one expected. */ }
+  if (!goes || goes.origin !== location.origin || !goes.pathname.startsWith('/gp/product/handle-buy-box/') || /check\s*-?out|\/gp\/buy/i.test(goes.pathname + goes.search)) return stop('an Add to Cart form that goes somewhere else');
   const never = /check\s*-?out|buy|(^|[^a-z])pay([^a-z]|$)|place.{0,6}order|one-?click|turbo/i;
-  const names = (node: Element): string[] => {
-    const box = node as HTMLInputElement;
-    const named = (node.getAttribute('aria-labelledby') ?? '').split(/\s+/).map(id => (id && document.getElementById(id)?.textContent) || '');
-    return [...named, node.getAttribute('aria-label') ?? '', node.getAttribute('alt') ?? '', node.getAttribute('title') ?? '', node.textContent ?? '', node.tagName === 'INPUT' ? box.value : '', node.closest('.a-button')?.textContent ?? ''].map(words => words.replace(/\s+/g, ' ').trim()).filter(Boolean);
-  };
-  const buttons = (within: ParentNode) => [...within.querySelectorAll('input[type="submit"],input[type="image"],input[type="button"],button')].filter(shown);
-  const risky = (node: Element) => [...names(node), node.getAttribute('name') ?? '', node.id, node.getAttribute('formaction') ?? ''].some(words => never.test(words));
-  const confirm = buttons(document).filter(node => !risky(node) && names(node).some(words => /^add to (your |shopping )?cart$/i.test(words)));
-  if (confirm.length !== 1) return stop(confirm.length ? 'more than one Add to Cart button' : 'an add page without its Add to Cart button');
-  const form = (confirm[0] as HTMLInputElement).form;
-  if (!form || never.test(form.getAttribute('action') ?? '') || buttons(form).some(risky)) return stop('an Add to Cart button in another kind of form');
-  // What the form itself says it will add, which has to be this one item. Saying nothing isn't good enough.
-  const named = new Set<string>();
-  for (const node of form.querySelectorAll('input[name^="ASIN" i]')) named.add((node as HTMLInputElement).value.trim().toUpperCase());
-  for (const node of form.querySelectorAll('[data-asin]')) { const value = node.getAttribute('data-asin')?.trim().toUpperCase(); if (value) named.add(value); }
-  for (const node of form.querySelectorAll('a[href]')) { const value = /\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i.exec(node.getAttribute('href') ?? '')?.[1]?.toUpperCase(); if (value) named.add(value); }
-  if (named.size !== 1 || !named.has(asin)) return stop('an Add to Cart form that doesn\'t name only this item');
-  for (const node of form.querySelectorAll('input[name^="Quantity" i],select[name^="Quantity" i]')) if ((node as HTMLInputElement).value.trim() !== String(quantity)) return stop('an Add to Cart form with another quantity');
-  if (!press) return { kind: 'confirm' };
-  (confirm[0] as HTMLElement).click();
+  const labels = [...(add.getAttribute('aria-labelledby') ?? '').split(/\s+/).map(id => (id && document.getElementById(id)?.textContent) || ''), add.getAttribute('aria-label') ?? '', add.tagName === 'INPUT' ? add.value : add.textContent ?? ''].map(words => words.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  if (add.getAttribute('formaction') || [...labels, add.getAttribute('name') ?? ''].some(words => never.test(words)) || !labels.some(words => /^add to (?:your |shopping )?cart$/i.test(words))) return stop('an Add to Cart button with another label');
+  // A parent ASIN, or a link sent on to another item, shows up here. What the page would add has to be this one item.
+  const inAddress = /\/dp\/([A-Z0-9]{10})(?:[/?#]|$)/i.exec(location.pathname)?.[1]?.toUpperCase();
+  const named = [...new Set([...form.querySelectorAll('input[name="ASIN"]'), ...document.querySelectorAll('#ASIN')])].map(node => (node as HTMLInputElement).value.trim().toUpperCase());
+  if (!named.length || named.some(value => value !== asin) || (inAddress && inAddress !== asin)) return refused(`This Amazon page isn't for ${asin} by itself. It may need an option chosen there, so nothing was added.`);
+  if (add.disabled || add.getAttribute('aria-disabled') === 'true') return refused('Amazon shows Add to Cart as unavailable for this item.');
+  const lists = [...document.querySelectorAll('select#quantity')] as HTMLSelectElement[];
+  if (lists.length > 1 || (lists[0]?.form && lists[0].form !== form)) return refused('Amazon\'s page doesn\'t show one clear quantity list for this item, so nothing was added.');
+  const list = lists[0];
+  if (!list && quantity !== 1) return refused(`Amazon's page has no quantity list for this item, so a quantity of ${quantity} wasn't added.`);
+  if (list) {
+    const offered = [...list.options].filter(option => !option.disabled).map(option => option.value);
+    if (!offered.includes(String(quantity))) return refused(`Amazon doesn't offer a quantity of ${quantity} for this item right now, so nothing was added.`);
+    if (list.value !== String(quantity)) {
+      list.value = String(quantity);
+      list.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (list.value !== String(quantity)) return refused(`Amazon's quantity list would not take ${quantity}, so nothing was added.`);
+  }
+  if (!press) return { kind: 'ready' };
+  add.click();
   return { kind: 'pressed' };
 }
 
@@ -114,6 +126,8 @@ export function amazonSteps(): StoreSteps {
     if (answer.kind === 'stop') throw new StoreStop(answer.reason, answer.detail, !maybeSent && answer.notSent);
   };
   return {
+    // Real presses on a product page, seen working only in a tab that's showing.
+    foreground: true,
     async resolveLine(order) {
       const { asin, conflict } = amazonAsin(order);
       if (conflict) throw new LineProblem(`The link and the SKU give different Amazon ASINs (SKU ${order.sku}).`);
@@ -133,23 +147,25 @@ export function amazonSteps(): StoreSteps {
     },
     async addLine(tab, target, quantity) {
       waiting = last?.key === target.key ? last : { key: target.key, quantity: 0, total: Infinity };
-      await tab.goto(amazonAddLink(target.addAs, quantity));
-      await wall(tab, false);
-      let page = stopIf(await tab.run(amazonAddPage, target.addAs, quantity, false));
-      if (page.kind === 'confirm') {
-        // Pressed once. If the same page comes back, it's not pressed again.
-        stopIf(await tab.runThenLoad(amazonAddPage, target.addAs, quantity, true));
-        await wall(tab, true);
-        page = stopIf(await tab.run(amazonAddPage, target.addAs, quantity, false));
-        if (page.kind === 'confirm') throw new StoreStop('unexpected', 'the add page came back after its button');
+      // Nothing is pressed until the product page has been checked, so a wall on the way there can't have sent anything.
+      try {
+        await tab.goto(amazonProductLink(target.addAs));
+        await wall(tab, false);
+      } catch (error) {
+        if (error instanceof StoreStop) throw new StoreStop(error.reason, error.detail, true);
+        throw error;
       }
+      const page = stopIf(await tab.run(amazonProductPage, target.addAs, quantity, false));
       if (page.kind === 'refused') throw new LineProblem(page.message);
+      // Pressed once. The side sheet it leads to has nothing pressed on it, and the runner's read-back says whether it landed.
+      stopIf(await tab.runThenLoad(amazonProductPage, target.addAs, quantity, true));
+      await wall(tab, true);
     },
   };
 }
 
 export const amazon: StoreMethod = {
-  id: 'amazon', label: 'Amazon', badge: 'item', badgeHelp: 'Uses Amazon\'s add link and its confirm button, one line at a time. Needs you signed in',
+  id: 'amazon', label: 'Amazon', badge: 'item', badgeHelp: 'Presses Add to cart on each product page, one line at a time. Needs you signed in',
   origins: [`${HOME}/*`], hosts: HOSTS, startUrl: CART, cartUrl: CART,
   requiredFields: ['quantity'],
   missing: order => amazonAsin(order).asin ? [] : ['an ASIN, in an amazon.com product link or the SKU'],

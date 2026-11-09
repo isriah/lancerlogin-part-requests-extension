@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Robotics Part Requests",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Review a product from your team's supported stores and send a part request through your team's LancerLogin site. Optional: fill store carts from open orders. It never checks out.",
   "minimum_chrome_version": "120",
   "permissions": ["activeTab", "scripting", "storage"],

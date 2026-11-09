@@ -19,14 +19,14 @@ const shots = process.env.E2E_SCREENSHOTS;
 const channel = process.env.E2E_CHANNEL || (process.platform === 'win32' ? 'msedge' : 'chromium');
 const realPrompt = process.env.E2E_PROMPT !== 'stub' && process.platform === 'win32' && channel === 'msedge';
 const SITE = 'https://team-site.example.test';
-const STORE_ORIGINS = ['https://www.homedepot.com/*', 'https://www.aliexpress.us/*', 'https://www.aliexpress.com/*', 'https://www.amazon.com/*', 'https://ambrosiafilament.com/*', 'https://andymark.com/*', 'https://us.store.bambulab.com/*', 'https://store.ctr-electronics.com/*', 'https://www.ferrulesdirect.com/*', 'https://www.harborfreight.com/*', 'https://www.mcmaster.com/*', 'https://www.onlinemetals.com/*', 'https://www.pololu.com/*', 'https://powerwerx.com/*', 'https://www.revrobotics.com/*', 'https://www.swervedrivespecialties.com/*', 'https://swervedrivespecialties.com/*', 'https://swyftrobotics.com/*', 'https://www.thethriftybot.com/*', 'https://www.vbeltguys.com/*', 'https://wcproducts.com/*', 'https://west3d.com/*'];
+const STORE_ORIGINS = ['https://www.homedepot.com/*', 'https://www.aliexpress.us/*', 'https://www.aliexpress.com/*', 'https://www.amazon.com/*', 'https://ambrosiafilament.com/*', 'https://andymark.com/*', 'https://store.ctr-electronics.com/*', 'https://www.ferrulesdirect.com/*', 'https://www.harborfreight.com/*', 'https://www.mcmaster.com/*', 'https://www.onlinemetals.com/*', 'https://www.pololu.com/*', 'https://powerwerx.com/*', 'https://www.revrobotics.com/*', 'https://www.swervedrivespecialties.com/*', 'https://swervedrivespecialties.com/*', 'https://swyftrobotics.com/*', 'https://www.thethriftybot.com/*', 'https://www.vbeltguys.com/*', 'https://wcproducts.com/*', 'https://west3d.com/*'];
 const NOTICE = 'No AI places your orders. This extension doesn\'t use AI. It only helps add items to a store\'s cart, after you click Build carts. You review the cart and place every order yourself on the store\'s own site.';
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${!ok && detail !== '' ? ` -> ${typeof detail === 'string' ? detail : JSON.stringify(detail)}` : ''}`); };
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 const productionManifest = JSON.parse(readFileSync(join(root, 'dist', 'manifest.json'), 'utf8'));
-check('Manifest: version 0.7.1', productionManifest.version === '0.7.1');
+check('Manifest: version 0.7.2', productionManifest.version === '0.7.2');
 check('Manifest: no cookie, web-request or always-on host access', !/cookies|webRequest|declarativeNet/.test(JSON.stringify(productionManifest)) && !productionManifest.host_permissions);
 const extension = join(work, 'extension');
 cpSync(join(root, 'dist'), extension, { recursive: true });
@@ -401,10 +401,14 @@ try {
   api.orders = [
     order('hd1', { vendor: 'Home Depot', urlVendor: 'Home Depot', productUrl: 'https://www.homedepot.com/p/Test-Hex-Nut/204647886', quantity: 3, unitPrice: null, description: 'Test hex nut' }),
     order('ali1', { vendor: 'Ali Express', urlVendor: 'Ali Express', productUrl: 'https://www.aliexpress.us/item/3256800000000001.html', quantity: 2, unitPrice: null, description: 'Test wire - Size: 0.8mm (5Meter)' }),
+    order('bb1', { vendor: 'BambuLab', urlVendor: 'BambuLab', productUrl: 'https://us.store.bambulab.com/products/test-filament?id=222', quantity: 2, unitPrice: null, description: 'Test filament' }),
   ];
   carts = await openCarts();
   await carts.waitForSelector('#orders-view:not([hidden])');
+  check('BambuLab: grouped under its name as a checklist, and ticked', /BambuLab/.test(await carts.textContent('tbody[data-store="checklist:bambulab"] .x-vendor-heading')) && /Checklist/.test(await carts.textContent('tbody[data-store="checklist:bambulab"] .x-method')) && await carts.$eval('tbody[data-store="checklist:bambulab"] input[type="checkbox"]', box => box.checked));
   await build(carts);
+  check('BambuLab: listed to add yourself, with its link and cart button', /Add these yourself/.test(await cardText(carts, 'checklist:bambulab')) && /Test filament, qty 2/.test(await cardText(carts, 'checklist:bambulab')) && await carts.$eval('[data-result="checklist:bambulab"]', card => [...card.querySelectorAll('a')].some(a => a.href === 'https://us.store.bambulab.com/products/test-filament?id=222') && [...card.querySelectorAll('a')].some(a => a.href === 'https://us.store.bambulab.com/cart' && /Open BambuLab cart/.test(a.textContent))), await cardText(carts, 'checklist:bambulab'));
+  check('BambuLab: Carts holds no access to its site, and nothing went there', !outsiders.some(url => /bambulab/.test(url)) && !(await carts.evaluate(() => chrome.permissions.contains({ origins: ['https://us.store.bambulab.com/*'] }))), outsiders);
   check('Home Depot: pressed the page\'s own button, read back after the rows loaded, and named the kept choice', stores.state.homedepot.cart.get('204647886') === 3 && /kept: Delivery/.test(await cardText(carts, 'homedepot')) && stores.state.homedepot.otherPresses === 0, await cardText(carts, 'homedepot'));
   check('Ali Express: selected the named option, added, read back, and said it leaves the ticks alone', stores.state.aliexpress.cart.get('0.8mm (5Meter)') === 2 && /1 added/.test(await cardText(carts, 'aliexpress')) && /leaves those ticks alone/.test(await cardText(carts, 'aliexpress')) && stores.state.aliexpress.otherPresses === 0, await cardText(carts, 'aliexpress'));
   check('Home Depot and Ali Express: only the confirmed orders are marked', JSON.stringify(api.marks.map(m => m.orderId).sort()) === JSON.stringify(['ali1', 'hd1']), api.marks);

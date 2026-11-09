@@ -3,6 +3,7 @@
 // or fails the line with nothing added. Bot checks appeared in automated profiles, so the first real run through this code is the owner's.
 // Owner decision 2026-11-09: proceed only when the option text saved in the request's description exactly matches a listing option. docs/CARTS.md has the rest.
 // A new item comes up ticked for checkout. Those ticks are the store's own and nothing here touches them. The results say so.
+// A listing also shows a side mini-cart, whose `.cart-product` rows have their own quantity boxes. Nothing inside one counts as a control of the listing.
 import { isOnStore } from '../safety';
 import { LineProblem, stopIf, type CartLine, type PageStop, type StoreMethod } from '../store-method';
 import type { CartOrder } from '../types';
@@ -68,25 +69,26 @@ export async function aliexpressReadListing(item: string, waitMs = 15_000): Prom
   const started = Date.now();
   const shown = (node: Element) => { const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0; };
   const words = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
+  const ofListing = (node: Element) => shown(node) && !node.closest('.cart-product');
   for (;;) {
     const text = words(document.body?.innerText ?? document.body?.textContent);
     if ([...document.querySelectorAll('iframe[src*="punish"],iframe[src*="_____tmd_____"],#baxia-dialog-content,.baxia-dialog,[id^="nc_"],#px-captcha')].some(shown) || /robot check|captcha|are you a human|verify you are (a )?human/i.test(document.title) || (text.length < 2000 && /slide to verify|please slide|unusual traffic|verify you are (a )?human/i.test(text))) return { kind: 'stop', reason: 'bot-check', detail: 'a CAPTCHA or bot check' };
     if ([...document.querySelectorAll('input[type="password"],iframe[src*="login"]')].some(shown) || [...document.querySelectorAll('[role="dialog"],[class*="comet-modal"]')].some(node => shown(node) && /\b(?:sign|log) in\b/i.test(node.textContent ?? ''))) return { kind: 'stop', reason: 'login', detail: 'a sign-in page' };
     if (location.pathname !== `/item/${item}.html`) return { kind: 'not-offered', message: 'The saved link went to a different page, so nothing was added.' };
-    if ([...document.querySelectorAll('button')].some(node => shown(node) && words(node.textContent) === 'Add to cart')) break;
+    if ([...document.querySelectorAll('button')].some(node => ofListing(node) && words(node.textContent) === 'Add to cart')) break;
     if (Date.now() - started >= waitMs) return { kind: 'not-offered', message: 'Ali Express shows no Add to cart button for this listing.' };
     await new Promise(done => setTimeout(done, 250));
   }
   // Options draw beside the button. A moment's wait means a listing with options isn't read as one without.
   await new Promise(done => setTimeout(done, 500));
-  const rows = [...document.querySelectorAll('[data-sku-row]')].filter(shown).map(row => [...row.querySelectorAll('[data-sku-col]')].map(col => {
+  const rows = [...document.querySelectorAll('[data-sku-row]')].filter(ofListing).map(row => [...row.querySelectorAll('[data-sku-col]')].map(col => {
     const marked = [col, ...col.querySelectorAll('[class*="selected"]')].some(node => /selected/i.test(node.getAttribute('class') ?? '') && !/unselected|not-?selected/i.test(node.getAttribute('class') ?? ''));
     const soldOut = /sold-?out|disabled|unavailable/i.test(col.getAttribute('class') ?? '') || col.getAttribute('aria-disabled') === 'true';
     return { name: words(col.getAttribute('title') || col.querySelector('[title]')?.getAttribute('title')), selected: marked, soldOut };
   }));
   // Option controls that this couldn't read must not pass for a listing with no options.
-  if (rows.some(row => !row.length) || (!rows.length && document.querySelector('[data-sku-col],[class*="sku-item"],[class*="sku-property"]'))) return { kind: 'not-offered', message: 'This listing\'s options couldn\'t be read, so nothing was added.' };
-  const price = [...document.querySelectorAll('[class*="price-default--current"],[class*="price--current"],[class*="product-price-current"]')].filter(shown).map(node => words(node.textContent)).find(text => text && !/^ends\s*:/i.test(text)) ?? '';
+  if (rows.some(row => !row.length) || (!rows.length && [...document.querySelectorAll('[data-sku-col],[class*="sku-item"],[class*="sku-property"]')].some(node => !node.closest('.cart-product')))) return { kind: 'not-offered', message: 'This listing\'s options couldn\'t be read, so nothing was added.' };
+  const price = [...document.querySelectorAll('[class*="price-default--current"],[class*="price--current"],[class*="product-price-current"]')].filter(ofListing).map(node => words(node.textContent)).find(text => text && !/^ends\s*:/i.test(text)) ?? '';
   return { kind: 'ok', rows, price };
 }
 
@@ -172,16 +174,17 @@ export async function aliexpressPressAdd(item: string, wanted: string[], quantit
   const shown = (node: Element) => { const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0; };
   const words = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
   const refused = (message: string) => ({ kind: 'refused' as const, message });
+  const ofListing = (node: Element) => shown(node) && !node.closest('.cart-product');
   const wall = (notSent: boolean): PageStop | null => {
     const text = words(document.body?.innerText ?? document.body?.textContent);
     if ([...document.querySelectorAll('iframe[src*="punish"],iframe[src*="_____tmd_____"],#baxia-dialog-content,.baxia-dialog,[id^="nc_"],#px-captcha')].some(shown) || /robot check|captcha|are you a human|verify you are (a )?human/i.test(document.title) || (text.length < 2000 && /slide to verify|please slide|unusual traffic|verify you are (a )?human/i.test(text))) return { kind: 'stop', reason: 'bot-check', detail: 'a CAPTCHA or bot check', notSent };
     if ([...document.querySelectorAll('input[type="password"],iframe[src*="login"]')].some(shown) || [...document.querySelectorAll('[role="dialog"],[class*="comet-modal"]')].some(node => shown(node) && /\b(?:sign|log) in\b/i.test(node.textContent ?? ''))) return { kind: 'stop', reason: 'login', detail: 'a sign-in page', notSent };
     return null;
   };
-  const addButtons = () => [...document.querySelectorAll('button')].filter(node => shown(node) && words(node.textContent) === 'Add to cart');
+  const addButtons = () => [...document.querySelectorAll('button')].filter(node => ofListing(node) && words(node.textContent) === 'Add to cart');
   const nameOf = (col: Element) => words(col.getAttribute('title') || col.querySelector('[title]')?.getAttribute('title'));
   const isSelected = (col: Element) => [col, ...col.querySelectorAll('[class*="selected"]')].some(node => /selected/i.test(node.getAttribute('class') ?? '') && !/unselected|not-?selected/i.test(node.getAttribute('class') ?? ''));
-  const rows = () => [...document.querySelectorAll('[data-sku-row]')].filter(shown).map(row => [...row.querySelectorAll('[data-sku-col]')].filter(shown));
+  const rows = () => [...document.querySelectorAll('[data-sku-row]')].filter(ofListing).map(row => [...row.querySelectorAll('[data-sku-col]')].filter(shown));
   const started = Date.now();
   for (;;) {
     const stop = wall(true);
@@ -209,9 +212,9 @@ export async function aliexpressPressAdd(item: string, wanted: string[], quantit
     if (on.length !== 1 || !(wanted.includes(nameOf(on[0])) || row.length === 1)) return refused('The listing didn\'t keep the requested option selected, so nothing was added.');
   }
   for (const name of wanted) if (!rows().flat().some(node => nameOf(node) === name && isSelected(node))) return refused(`The listing didn't keep "${name}" selected, so nothing was added.`);
-  const price = [...document.querySelectorAll('[class*="price-default--current"],[class*="price--current"],[class*="product-price-current"]')].filter(shown).map(node => words(node.textContent)).find(text => text && !/^ends\s*:/i.test(text)) ?? '';
+  const price = [...document.querySelectorAll('[class*="price-default--current"],[class*="price--current"],[class*="product-price-current"]')].filter(ofListing).map(node => words(node.textContent)).find(text => text && !/^ends\s*:/i.test(text)) ?? '';
   if (!/^(?:US\s*)?\$\s*\d/.test(price)) return refused('Ali Express isn\'t showing this price in US dollars, so nothing was added.');
-  const boxes = ([...document.querySelectorAll('input[class*="input-number-input"]')] as HTMLInputElement[]).filter(shown);
+  const boxes = ([...document.querySelectorAll('input[class*="input-number-input"]')] as HTMLInputElement[]).filter(ofListing);
   if (boxes.length !== 1) return refused('The page doesn\'t show one clear quantity box for this listing, so nothing was added.');
   if (Number(boxes[0].value) !== quantity) {
     // The page's own framework watches for input events, so the value goes in the way typing would and the events follow.

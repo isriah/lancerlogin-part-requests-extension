@@ -41,5 +41,9 @@ export function storeNamed(name: string | null | undefined): StoreMethod {
 const linkVendor = (order: CartOrder): string | undefined => order.productUrl ? vendorForUrl(order.productUrl)?.label : undefined;
 /** Which store's group an order belongs in. The link wins, because that's what an add would act on. selection.ts blocks a disagreement. */
 export const storeForOrder = (order: CartOrder): StoreMethod => storeNamed(order.urlVendor ?? linkVendor(order) ?? order.vendor);
-/** Everything Chrome is asked for when Carts is turned on, and everything taken back when it's turned off. */
+/** Everything Chrome is asked for when Carts is turned on. */
 export const allStoreOrigins = (): string[] => STORES.flatMap(s => s.origins);
+/** Stores Carts no longer automates, whose access an earlier version may hold. Only ever taken back, never asked for. */
+const RETIRED_ORIGINS = ['https://us.store.bambulab.com/*'];
+/** Everything taken back when Carts is turned off. */
+export const originsToGiveBack = (): string[] => [...allStoreOrigins(), ...RETIRED_ORIGINS];

@@ -1,4 +1,4 @@
-import { allStoreOrigins } from '../src/carts/registry';
+import { allStoreOrigins, originsToGiveBack } from '../src/carts/registry';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach,afterEach,describe,it,expect,vi } from 'vitest';
@@ -41,7 +41,7 @@ describe('the Carts switch',()=>{
   it('turning it off gives the access back, and asks for nothing',async()=>{
     view={...paired(),cartsEnabled:true};await open();
     view=paired();flip();
-    await vi.waitFor(()=>expect(chrome.permissions.remove).toHaveBeenCalledWith({origins:storeOrigins}));
+    await vi.waitFor(()=>expect(chrome.permissions.remove).toHaveBeenCalledWith({origins:originsToGiveBack()}));
     expect(request).not.toHaveBeenCalled();
   });
   it('an Admin turning it off hides it',async()=>{

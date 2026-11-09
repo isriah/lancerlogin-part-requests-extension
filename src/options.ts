@@ -1,7 +1,7 @@
 import './styles.css';
 import { applyAppearance } from './appearance';
 import { DEFAULT_PRIMARY, DEFAULT_SECONDARY, brandTokens } from './brand';
-import { allStoreOrigins } from './carts/registry';
+import { allStoreOrigins, originsToGiveBack } from './carts/registry';
 import { manifestAllowsLocalHttp, normalizePin, normalizeSiteAddress, originPattern } from './pairing';
 import { VENDORS } from './vendors';
 import type { SettingsView, UnpairView } from './types';
@@ -104,7 +104,7 @@ carts.addEventListener('change', () => {
   void (async () => {
     try {
       settings = await send<SettingsView>({ type: 'set-carts', enabled: false }); render();
-      await chrome.permissions.remove({ origins: allStoreOrigins() }).catch(() => undefined);
+      await chrome.permissions.remove({ origins: originsToGiveBack() }).catch(() => undefined);
       notice('Carts is off, and this extension gave back its access to the stores.', 'success');
     } catch (error) { carts.checked = settings.cartsEnabled === true; notice(errorText(error), 'error'); }
   })();
@@ -143,7 +143,7 @@ el('unpair').addEventListener('click', async () => {
   notice('Unpairing...');
   try {
     const result = await send<UnpairView>({ type: 'unpair' });
-    await chrome.permissions.remove({ origins: allStoreOrigins() }).catch(() => undefined);
+    await chrome.permissions.remove({ origins: originsToGiveBack() }).catch(() => undefined);
     settings = result;
     address.value = ''; label.value = ''; render();
     if (result.revokedOnSite) notice('Unpaired. This device was removed from your team\'s site, which frees one of your 5 device slots, and this computer no longer has the key.', 'success');

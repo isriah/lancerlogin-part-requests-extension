@@ -110,10 +110,10 @@ describe('the registry', () => {
   });
   it('every store has the method its evidence supports', () => {
     expect(Object.fromEntries(STORES.map(s => [s.id, s.badge]))).toEqual({
-      aliexpress: 'item', amazon: 'item', ambrosia: 'direct', andymark: 'direct', bambu: 'item', ctre: 'direct', ferrules: 'direct', harborfreight: 'item', homedepot: 'item',
+      aliexpress: 'item', amazon: 'item', ambrosia: 'direct', andymark: 'direct', 'checklist:bambulab': 'checklist', ctre: 'direct', ferrules: 'direct', harborfreight: 'item', homedepot: 'item',
       mcmaster: 'item', onlinemetals: 'item', pololu: 'item', powerwerx: 'item', rev: 'direct', sds: 'direct', swyft: 'item', thrifty: 'direct', vbelts: 'direct', wcp: 'direct', west3d: 'direct',
     });
-    expect(allStoreOrigins()).toHaveLength(22);
+    expect(allStoreOrigins()).toHaveLength(21);
   });
 });
 describe('addresses a store tab refuses', () => {
