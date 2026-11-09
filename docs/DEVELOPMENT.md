@@ -91,6 +91,7 @@ Exception to the dashboard's UI standard, recorded at review: popup labels are .
 When the toolbar opens the popup, it sends `capture` with `auto: true`. Anything done inside the popup uses `auto: false`, which can't send. `captureTab` in the worker runs one at a time per tab, so rapid reopening shares one draft and one submission ID. It stops at a receipt or an existing submission. Otherwise, with the switch on and a paired device, it reads the page, refreshes the lists, works out the reasons and asks `/check`.
 
 - **Any reason:** the draft is marked `fallback` with its reasons, and the form lists them. Reopening looks again, with the same ID, until a student edits the draft. That's how "select the option and reopen" works.
+- **Without Express, or once a draft is edited:** reopening reads the page too, because a store such as REV changes the chosen option without changing the address, so the draft's key stays the same. A draft that still matches the page is returned as it is. An unedited draft that differs is replaced. An edited one is replaced only when the description, SKU or options changed; it keeps the student's quantity, status, team and recipient, stays edited, and the form says the option changed.
 - **No reasons:** the draft is marked `attempted` before anything is sent, then `startExpressSend` goes through the same `SubmissionManager`, `sendOnce` and submission ID as a click. If the worker stops at any point, the mark means the student gets the form or the saved result, never a second send.
 - **Results:** success writes the usual receipt. Uncertain and no answer use the usual read-only reconcile, and retrying needs the usual confirmation, which marks the draft `manual`. A recorded refusal mints a new ID and returns to the form with the error. A refusal with nothing recorded keeps the ID and returns to the form. Neither sends again by itself.
 - **Marks that stop it for good:** an edit, `attempted`, or `manual`. A click on Create request, Discard, New request and Review and retry all mark `manual`.
@@ -121,6 +122,8 @@ On Windows it opens a headed Edge and presses Chrome's real permission prompt th
 
 `npm run e2e:carts` needs a build. It loads `dist` in the same way, with the simulated plugin and synthetic copies of the four stores routed at their real addresses. It presses Chrome's real prompt for the Carts switch, covers every `/orders` answer, the selection rules, Incomplete flags, retries, read-back mismatch, short stock, walls, marks only for confirmed lines and the disabled switches, and asserts that no request reaches a checkout address and none leaves for another site. `E2E_SCREENSHOTS=<folder>` saves `built-carts-*.png`. Playwright doesn't intercept a redirect's target, so synthetic stores answer in place instead of redirecting.
 
+`npm run live:options` reads real REV product pages through the built extension in a throwaway profile. It chooses options as a student would, reopens the popup after each choice, and checks the SKU, price and description against what the page shows. It never adds to the cart: cart, checkout and sign-in requests are refused. It stops at any challenge that wants a person.
+
 `npm run live:carts` adds real items to throwaway profiles. See [Carts](CARTS.md#testing-a-store) before running it. `LIVE_ONLY=rev-pololu,wcp,mcmaster` chooses which.
 
 ## Acceptance on a real site
@@ -131,7 +134,7 @@ Use the plugin on a dev site with a test database. Enter credentials only where 
 2. Run `/ordering-pin` in Discord and pair with the address and PIN from the reply. Try Deny, then Allow. Save a team and a person.
 3. Use each representative page in the [vendor matrix](VENDORS.md), including a real Ali Express product. Select variants, open the toolbar popup, and compare title, options, SKU, price, currency, and URL with the page. Complete any bot or login prompts yourself.
 4. Check unsupported, lookalike, category, cart, and multi-product pages. Confirm no creation is possible. Change the review URL to another supported vendor and verify the derived Vendor.
-5. On a product, edit quantity, team, and description. Close and reopen the popup. Verify exact edits persist. Change the product's variant, Discard the draft, and check fresh capture.
+5. On a product, edit quantity, team, and description. Close and reopen the popup. Verify exact edits persist. Change the product's variant and reopen: on a store that keeps the address, such as REV, the new option's SKU and price replace the old ones and the edited quantity stays. Discard the draft and check fresh capture.
 6. Create one NORMAL test request and one Incomplete test request. Confirm the exact fields in Notion, formula total, people, status, and working product link. Check that no page template or body content was added.
 7. Rapidly click submit and close/reopen the popup while submission is pending. Confirm one page was created. Repeat offline. For an uncertain result, inspect Notion before any retry.
 8. Revoke the device on the Admin page with a draft open. Confirm the prompt to pair again, that the draft is kept, and that it sends after pairing again.

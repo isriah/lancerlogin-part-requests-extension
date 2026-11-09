@@ -111,7 +111,7 @@ const expressUrl = name => `https://www.revrobotics.com/test-express-${name}/`;
 const expressPages = {
   ok: revPage('Test bearing, sending'), rapid: revPage('Test bearing, rapid reopen'), uncertain: revPage('Test bearing, uncertain'), noanswer: revPage('Test bearing, no answer'), refused: revPage('Test bearing, refused'), news: revPage('Test bearing, new request'), edited: revPage('Test bearing, edited', ''), closed: revPage('Test bearing, popup closed'), lightuncertain: revPage('Test bearing, light uncertain'), lostanswer: revPage('Test bearing, answer lost'),
   price: revPage('Test bearing, no price', ''),
-  variant: revPage('Test hex shaft', '<div class="productView-price"><span data-product-price-without-tax>$12.50</span></div>', '<div data-product-option-change><select class="form-select form-select--small" name="attribute[1]"><option value="">Choose a length</option><option value="4">4 in.</option></select></div>'),
+  variant: revPage('Test hex shaft', '<div class="productView-price"><span data-product-price-without-tax>$12.50</span></div>', '<form data-cart-item-add><input type="hidden" name="product_id" value="1"><div data-product-option-change><div class="form-field" data-product-attribute="set-select"><label class="form-label form-label--alternate">Length: <small>*</small></label><select class="form-select form-select--small" name="attribute[1]" required><option value="">Choose a length</option><option value="4">4 in.</option></select></div></div></form>'),
   currency: revPage('Test crimp terminals', '<div class="productView-price"><span data-product-price-without-tax>\u20ac19.50</span></div>'),
   repeat: revPage('Test bearing, repeat'), check: revPage('Test bearing, check fails'), defaults: revPage('Test bearing, no defaults'), all: revPage('Test bearing, every reason', ''),
 };
@@ -320,7 +320,7 @@ try {
   check('Options: no sideways scroll at narrow width', await reopened.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await reopened.close();
 
-  // The update notice: the built version is 1.0.0, and 1.10.0 is above it.
+  // The update notice: the built version is 1.0.1, and 1.10.0 is above it.
   api.minimumVersion = '1.10.0';
   const outdated = watch(await context.newPage());
   await outdated.goto(optionsUrl);

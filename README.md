@@ -24,7 +24,7 @@ Open one supported product and choose its options first. Click the extension, re
 
 Quantity is the number of units or packs sold at the displayed unit price. For a pack of 50 screws priced at $21.40, quantity 1 means one pack. The preview excludes shipping and tax; Notion computes its own Extension field.
 
-Edits are saved locally per tab and original URL. Reopening the popup restores them. **Discard** removes edits and recaptures the current page. Success clears the draft and retains a receipt with **Open in Notion** and **New request** actions. A new browser tab is a separate draft.
+Edits are saved locally per tab and original URL. Reopening the popup reads the page again and restores them while it shows the same option. Some stores, such as REV, change the option without changing the address; after a different option is chosen there, reopening reads its description, SKU and price, keeps your quantity, status, team and recipient, and says so. **Discard** removes edits and recaptures the current page. Success clears the draft and retains a receipt with **Open in Notion** and **New request** actions. A new browser tab is a separate draft.
 
 If someone asked for the same product in the last 7 days, the popup says who and when. It is only a warning, and you can still send.
 
@@ -61,10 +61,11 @@ NORMAL and RUSH start ticked. SLOW and Incomplete start unticked, and anything m
 
 ## Verification status
 
-- Unit tests (`npm test`): 1195 pass, including all 20 adapter fixtures, the device API's results, version comparison, Unpair's outcomes, worker persistence, Express addition's conditions and sends, team color validation and contrast, and popup and Options interactions.
+- Unit tests (`npm test`): 1254 pass, including all 20 adapter fixtures, the device API's results, version comparison, Unpair's outcomes, worker persistence, Express addition's conditions and sends, team color validation and contrast, and popup and Options interactions.
 - Browser end-to-end run (`npm run e2e`): 283 checks against the built extension with a simulated plugin API and Chrome's real permission prompt. It cannot prove the toolbar-click permission grant.
-- A pass against the real plugin in a local preview, with Notion stubbed, was last run on version 0.4.0, not 1.0.0, including team colors from Core's real status route; see [Development](docs/DEVELOPMENT.md#tests). Version 0.3.0 has not been run against real Notion, real Discord, real Cloudflare or Google Chrome itself, and Express addition has not been tried from a real toolbar click.
+- A pass against the real plugin in a local preview, with Notion stubbed, was last run on version 0.4.0, not 1.0.1, including team colors from Core's real status route; see [Development](docs/DEVELOPMENT.md#tests). Version 0.3.0 has not been run against real Notion, real Discord, real Cloudflare or Google Chrome itself, and Express addition has not been tried from a real toolbar click.
 - Carts: `npm run e2e:carts` (181 checks) drives the built extension against synthetic copies of seven stores and a simulated plugin, and `npm run live:carts` adds one real item each in a throwaway profile. REV, Pololu, WCP, Ambrosia, CTRE, FerrulesDirect, SDS, Thrifty Bot, V-Belt Guys, West3D and Swyft passed live through the built extension. AndyMark passed too, including an item it sells only in multiples, which a build rounds up and flags. Amazon, Ali Express, Harbor Freight, Home Depot, McMaster, Online Metals and PowerWerx have worked in the owner's signed-in browser, including a retry that added nothing. BambuLab is unsupported in Carts: its orders are a checklist to add by hand, though the toolbar still saves requests from its pages. A pass against the real plugin on real Core in a local preview on version 0.4.0, with Notion stubbed and stores synthetic, covered `/orders`, marks and the Admin's switch. Carts has not run against real Notion. See [Carts](docs/CARTS.md#evidence).
+- REV options: `npm run live:options` chose 12 option combinations on three real REV products through the built 1.0.1 extension, reopening the popup after each choice, and every SKU, price and description matched the page. With nothing chosen, it asks for an option and leaves the SKU and price blank.
 - Vendor reader checks: see the [vendor matrix](docs/VENDORS.md).
 
 ## Develop

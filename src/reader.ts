@@ -144,6 +144,57 @@ export function capturePage(config: AdapterConfig): CaptureResult {
     if (value && !/^(default title|default)$/i.test(value)) out.variants.push(value);
   }
   out.variants = [...new Set(out.variants)].filter(v => v.length < 200).slice(0, 12);
+  // BigCommerce changes the selection in place: the address stays the same, and the theme rewrites the SKU and price on the
+  // page. So read the chosen options from the main add-to-cart form. Its metadata only ever describes the base product.
+  let optionSku = '';
+  let productId = '';
+  let bigcommerceOptions = false;
+  if (config.profile === 'bigcommerce') {
+    // The first form is the product's own. Related products and the quick view come later in the page.
+    const form = document.querySelector('.productView form[data-cart-item-add]') || document.querySelector('form[data-cart-item-add]');
+    bigcommerceOptions = !!form?.querySelector('[data-product-attribute]');
+    productId = clean(form?.querySelector<HTMLInputElement>('input[name="product_id"]')?.value);
+    const skuIn = (text: string): string => /\(([A-Z][A-Z\d]*-[A-Z\d][A-Z\d-]*)\)/.exec(text)?.[1] || '';
+    const labelOf = (el: HTMLInputElement): string => clean([...form?.querySelectorAll<HTMLLabelElement>('label[for]') || []].find(l => !!el.id && l.htmlFor === el.id)?.textContent || el.labels?.[0]?.textContent || el.value);
+    const skus: string[] = [];
+    for (const field of form?.querySelectorAll<HTMLElement>('[data-product-attribute]') || []) {
+      if (!isVisible(field)) continue;
+      const kind = field.getAttribute('data-product-attribute') || '';
+      // Variant options choose the SKU. Modifiers, such as a product list of add-ons or a checkbox, only add to it.
+      const variantOption = /^(set-radio|set-rectangle|set-select|swatch)$/.test(kind);
+      const required = !!field.querySelector('[required], ._required, small.required');
+      const heading = field.querySelector('.form-label--alternate, legend, .form-label');
+      const name = clean([...heading?.childNodes || []].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent).join(' ')).replace(/\s*:\s*$/, '');
+      const chosen: string[] = [];
+      let empty = false;
+      const select = field.querySelector('select');
+      const choices = [...field.querySelectorAll<HTMLInputElement>('input[type="radio"], input[type="checkbox"]')];
+      if (select) {
+        const option = select.selectedOptions[0];
+        if (!select.value || !option || /^(choose|select|please select)\b/i.test(clean(option.textContent))) empty = true;
+        else chosen.push(clean(option.textContent));
+      } else if (choices.length) {
+        const checked = choices.filter(c => c.checked);
+        if (!checked.length) empty = choices.some(c => c.type === 'radio');
+        // A product list's "None" is a choice of nothing.
+        for (const c of checked) if (!(c.value === '0' || /^none$/i.test(labelOf(c)))) chosen.push(labelOf(c));
+      } else {
+        const typed = [...field.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input:not([type="hidden"]):not([type="file"]), textarea')].map(e => clean(e.value)).filter(Boolean);
+        if (typed.length) chosen.push(`${name ? `${name}: ` : ''}${typed.join(' ')}`);
+        else empty = !!field.querySelector('input, textarea');
+      }
+      if (empty && required) unselected = true;
+      for (const value of chosen) {
+        const sku = skuIn(value);
+        if (sku && variantOption) skus.push(sku);
+        // The SKU field holds a variant's SKU, so it leaves the description. An add-on keeps its own.
+        const shown = clean(sku && variantOption ? value.replace(`(${sku})`, ' ') : value).replace(/^[-–:\s]+|[-–:\s]+$/g, '');
+        if (shown) out.variants.push(shown);
+      }
+    }
+    hasVariantControls ||= bigcommerceOptions;
+    optionSku = skus.length === 1 ? skus[0] : '';
+  }
   let variant: Obj | undefined;
   let shopifyMultiple = false;
   if (config.profile === 'shopify') {
@@ -173,11 +224,22 @@ export function capturePage(config: AdapterConfig): CaptureResult {
   const offerMatches = offers.filter(o => clean(o['@type']) !== 'AggregateOffer' && (o.sku && clean(o.sku) === domSku || o.url && clean(o.url) === url));
   const offer = offerMatches.length === 1 ? offerMatches[0] : offers.length === 1 && offers[0]['@type'] !== 'AggregateOffer' ? offers[0] : undefined;
   const exactVariant = !!variant || offerMatches.length === 1 || bambuSelected || groupVariantExact;
-  const metadataSafe = !hasVariantControls || exactVariant;
+  // A BigCommerce offer always describes the base product, even when its address is this page's.
+  const metadataSafe = !hasVariantControls || exactVariant && !bigcommerceOptions;
   // An explicit range or installment quote must not fall back to a metadata minimum.
   const unsafeDisplayedPrice = !!domPriceText && domPrice === null;
   out.price = unsafeDisplayedPrice ? null : domPrice ?? (variant && typeof variant.price === 'number' ? variant.price / 100 : metadataSafe ? money(offer?.price ?? (meta('product:price:amount') || meta('og:price:amount'))) : null);
   out.sku = domSku || clean(variant?.sku) || (metadataSafe ? clean(offer?.sku || product?.sku) : '');
+  if (config.profile === 'bigcommerce') {
+    // Some themes publish the internal product number as the SKU when the product has none.
+    if (productId && out.sku === productId) out.sku = '';
+    if (!domSku && optionSku) out.sku = optionSku;
+    // The chosen option names its SKU, and the page still shows another one: the theme hasn't caught up with the click yet.
+    else if (domSku && optionSku && domSku.toUpperCase() !== optionSku.toUpperCase()) {
+      out.sku = optionSku; out.price = null;
+      out.issues.push('The store page was still updating the price. Wait a moment, then reopen the extension, or check the SKU and price.');
+    }
+  }
   if (config.id === 'swyft') {
     const scope = document.querySelector('main h1')?.parentElement?.parentElement;
     out.sku = clean([...scope?.querySelectorAll('span') || []].find(e => /^SKU:\s*/.test(clean(e.textContent)))?.textContent).replace(/^SKU:\s*/, '');

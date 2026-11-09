@@ -19,7 +19,8 @@ const bc = {
   title: ['.productView-title', '[itemprop="name"]', 'main h1'],
   price: ['.productView-price [data-product-price-without-tax]', '.productView-price [data-product-price-with-tax]'],
   sku: ['[data-product-sku]', '[itemprop="sku"]'],
-  variants: ['[data-product-option-change] select', '[data-product-option-change] input[type="radio"]:checked'],
+  // The reader reads BigCommerce options from the add-to-cart form itself, so a missing choice is noticed too.
+  variants: [],
   productMarker: ['.productView', 'form[data-cart-item-add]'],
 };
 function entry(id: string, label: string, host: string, base: Omit<AdapterConfig, 'id' | 'label' | 'hosts'>, overrides: Partial<AdapterConfig> = {}): AdapterConfig {

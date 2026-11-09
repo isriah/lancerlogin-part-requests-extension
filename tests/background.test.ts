@@ -22,13 +22,34 @@ describe('service worker message flow',()=>{
     expect(await call({type:'settings'},{id:'extension-id',url:'https://www.revrobotics.com/rev-21-1651/'})).toMatchObject({ok:false});
     const settings=await call({type:'settings'});expect(settings.data.pairing).toBe('paired');expect(JSON.stringify(settings)).not.toContain(DEVICE_KEY);
   });
-  it('captures only clicked tab and restores edited draft without reading the page again',async()=>{
+  it('captures only clicked tab and restores an edited draft while the page shows the same option',async()=>{
     const first=await call({type:'capture',tabId:42});const draft=first.data.record;draft.draft.description='My edits';draft.updatedAt++;
     expect(draft.draft.team).toBe('team1');expect(draft.draft.recipient).toBe('person1');
     await call({type:'save-draft',record:draft});const second=await call({type:'capture',tabId:42});
-    expect(second.data.record.draft.description).toBe('My edits');expect(chromeMock.scripting.executeScript).toHaveBeenCalledTimes(1);
+    expect(second.data.record.draft.description).toBe('My edits');expect(second.data.record.submissionId).toBe(draft.submissionId);
+    expect(chromeMock.scripting.executeScript).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(chromeMock.scripting.executeScript.mock.calls)).not.toContain(DEVICE_KEY);
     expect(await call({type:'discard',key:draft.key})).toMatchObject({ok:true});expect(values[`draft:${draft.key}`]).toBeUndefined();
+  });
+  // REV and other BigCommerce stores change the option in place: the address, and so the draft's key, stays the same.
+  const reselect=(extra:Record<string,unknown>)=>{chromeMock.scripting.executeScript=vi.fn(async()=>[{result:{...record().capture,...extra}}]);};
+  it('reads the page again when the option on it changed, so an untouched draft follows the selection',async()=>{
+    reselect({description:'5mm Hex Shafts',sku:'',price:null,variants:[],issues:['Select all product options on the store page, or enter the exact variant and price manually.']});
+    const first=(await call({type:'capture',tabId:42})).data.record;expect(first.draft.sku).toBe('');
+    reselect({description:'5mm Hex Shafts - 5mm x 90mm Hex Shaft - 4 Pack',sku:'REV-41-1348-PK4',price:14.75,variants:['5mm x 90mm Hex Shaft - 4 Pack'],issues:[]});
+    const second=(await call({type:'capture',tabId:42})).data.record;
+    expect(second.draft).toMatchObject({description:'5mm Hex Shafts - 5mm x 90mm Hex Shaft - 4 Pack',sku:'REV-41-1348-PK4',price:14.75,quantity:1});
+    expect(second.submissionId).not.toBe(first.submissionId);expect(second.edited).toBeUndefined();expect(values[`draft:${first.key}`].draft.sku).toBe('REV-41-1348-PK4');
+    const third=(await call({type:'capture',tabId:42})).data.record;expect(third.submissionId).toBe(second.submissionId);
+  });
+  it('replaces the option fields of an edited draft when the option changed, keeps the rest, and says so',async()=>{
+    reselect({description:'5mm Hex Shafts - 5mm x 90mm Hex Shaft - 4 Pack',sku:'REV-41-1348-PK4',price:14.75,variants:['5mm x 90mm Hex Shaft - 4 Pack']});
+    const first=(await call({type:'capture',tabId:42})).data.record;
+    await call({type:'save-draft',record:{...first,updatedAt:first.updatedAt+1,draft:{...first.draft,quantity:3,status:'Incomplete Request',description:'typed'}}});
+    reselect({description:'5mm Hex Shafts - 5mm x 135mm Hex Shaft - 4 Pack',sku:'REV-41-1349-PK4',price:17.5,variants:['5mm x 135mm Hex Shaft - 4 Pack']});
+    const second=(await call({type:'capture',tabId:42})).data.record;
+    expect(second.draft).toMatchObject({description:'5mm Hex Shafts - 5mm x 135mm Hex Shaft - 4 Pack',sku:'REV-41-1349-PK4',price:17.5,quantity:3,status:'Incomplete Request',team:'team1'});
+    expect(second.edited).toBe(true);expect(second.capture.issues[0]).toMatch(/option chosen on the store page changed/);
   });
   it('captures and keeps drafts while unpaired, and refuses to send',async()=>{
     delete values.site;delete values.deviceKey;delete values.options;delete values.defaultTeam;

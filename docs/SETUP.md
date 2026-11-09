@@ -71,7 +71,7 @@ Off by default, per device. Turning it on asks Chrome for the stores that are bu
 | Too many requests | Wait the time shown. The limit is per device. |
 | Requested recently | Someone asked for the same product in the last 7 days. Check with them if you are not sure, or send anyway. |
 | Person missing | See [Student: choose defaults](#student-choose-defaults). |
-| Product price/SKU blank | Choose all product options and reopen. If a draft already exists, Discard to recapture, then correct the exact values manually. |
+| Product price/SKU blank | Choose all product options and reopen. Reopening reads the page again. If it's still blank, correct the exact values manually. |
 | Open one specific product | Leave search, category, cart, or multi-product pages. WCP requires one checked part. McMaster requires an individual part-number page. |
 | Foreign or unknown currency | Enter the price in USD and check the confirmation box. No conversion is performed. |
 | Unsupported URL | Use a fixed allowlisted store. Redirect shortened links by opening them normally first. BambuLab is US-only and CTRE uses its store subdomain. |

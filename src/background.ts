@@ -7,7 +7,7 @@ import { capturePage } from './reader';
 import { SubmissionManager, type Created } from './submissions';
 import { validateDraft } from './validate';
 import { vendorForUrl } from './vendors';
-import type { CaptureResult, DeviceOptions, DraftRecord, ExpressReason, Message, RequestDraft, SettingsView, Submission, SubmissionFacts } from './types';
+import type { CaptureResult, DeviceOptions, DraftRecord, ExpressMark, ExpressReason, Message, RequestDraft, SettingsView, Submission, SubmissionFacts } from './types';
 
 /** Retries of one create while the site reports maintenance. At Core's 30 seconds, that is two minutes. */
 const MAINTENANCE_RETRIES = 4;
@@ -176,6 +176,15 @@ async function startExpressSend(record: DraftRecord, options: DeviceOptions | un
   if (now?.state === 'failed') await finished;
   return now ?? { id, draftKey: record.key, state: 'pending', updatedAt: Date.now(), express: true, facts };
 }
+/**
+ * The page still shows the product and option this capture read. For a draft nobody has edited, the price and notes must match
+ * too, since reading it again loses nothing. A student's edits are only replaced when the option itself changed.
+ */
+const sameSelection = (a: CaptureResult, b: CaptureResult, edited: boolean): boolean => {
+  const parts = (c: CaptureResult) => JSON.stringify(edited ? [c.description, c.sku, c.variants] : [c.description, c.sku, c.variants, c.price, c.currency, c.issues]);
+  return parts(a) === parts(b);
+};
+const OPTION_CHANGED = 'The option chosen on the store page changed, so the description, SKU and price were read again. Check them.';
 async function captureTab(tabId: number, auto: boolean): Promise<unknown> {
   if (!Number.isInteger(tabId)) throw new AppError('Open a product in a regular Chrome tab.');
   const tab = await chrome.tabs.get(tabId);
@@ -196,7 +205,6 @@ async function captureTab(tabId: number, auto: boolean): Promise<unknown> {
   }
   const settings = await view();
   const wantsExpress = auto && settings.expressEnabled === true && settings.pairing === 'paired' && !previous?.edited && (!previous?.express || previous.express.state === 'fallback');
-  if (previous && !wantsExpress) return { record: previous };
   let capture;
   try {
     const results = await chrome.scripting.executeScript({ target: { tabId }, world: 'ISOLATED', func: capturePage, args: [vendor] });
@@ -208,10 +216,18 @@ async function captureTab(tabId: number, auto: boolean): Promise<unknown> {
   }
   if (!capture || capture.url !== tab.url) { if (previous) return { record: previous }; throw new AppError('The page changed during capture. Reopen the extension.'); }
   if (capture.kind !== 'product') return previous ? { record: previous } : { capture };
+  // Some stores, such as REV, change the chosen option without changing the address. A draft read before that choice
+  // describes another variant, so it is read again. A draft that still matches the page is kept as it is, edits and all.
+  if (previous && !wantsExpress && sameSelection(previous.capture, capture, !!previous.edited)) return { record: previous };
+  if (previous?.edited) capture = { ...capture, issues: [OPTION_CHANGED, ...capture.issues] };
   if (!wantsExpress) {
     const [options, defaultTeam] = await Promise.all([get<DeviceOptions>('options'), get<string>('defaultTeam')]);
+    const fresh = blankDraft(capture, defaultTeam, options);
+    // What a student chose that doesn't depend on the option stays. The description, SKU and price belong to the old option.
+    const draft = previous?.edited ? { ...fresh, status: previous.draft.status, team: previous.draft.team, recipient: previous.draft.recipient, quantity: previous.draft.quantity } : fresh;
     // Pressing New request or Discard is a deliberate choice of the form, and stays that way until the draft is gone.
-    const record: DraftRecord = { key, submissionId: crypto.randomUUID(), capture, updatedAt: Date.now(), draft: blankDraft(capture, defaultTeam, options), ...(auto ? {} : { express: { state: 'manual', reasons: [] } }) };
+    const express: ExpressMark | undefined = previous?.express && previous.express.state !== 'fallback' ? previous.express : auto ? undefined : { state: 'manual', reasons: [] };
+    const record: DraftRecord = { key, submissionId: crypto.randomUUID(), capture, updatedAt: Math.max(Date.now(), (previous?.updatedAt ?? 0) + 1), draft, ...(previous?.edited ? { edited: true } : {}), ...(express ? { express } : {}) };
     await put(`draft:${key}`, record);
     return { record };
   }

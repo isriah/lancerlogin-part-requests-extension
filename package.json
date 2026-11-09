@@ -1,6 +1,6 @@
 {
   "name": "robotics-part-requests",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "e2e": "node e2e/extension.e2e.mjs",
     "e2e:carts": "node e2e/carts.e2e.mjs",
     "live:carts": "node e2e/carts.live.mjs",
+    "live:options": "node e2e/options.live.mjs",
     "package": "npm run build && node scripts/package.mjs"
   },
   "devDependencies": {
