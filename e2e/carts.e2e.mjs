@@ -47,7 +47,8 @@ const polOrder = (id, extra) => order(id, { vendor: 'Pololu', urlVendor: 'Pololu
 const mcmOrder = (id, extra) => order(id, { vendor: 'McMaster', urlVendor: 'McMaster', productUrl: 'https://www.mcmaster.com/91251A537/', quantity: 2, unitPrice: 21.4, description: 'Test socket head screws, pack of 50', ...extra });
 const fullList = () => [
   mcmOrder('m1'), wcpOrder('w1'), wcpOrder('w2', { description: 'Test compliant wheel, 4 in.', sku: 'WCP-2001', productUrl: 'https://wcproducts.com/products/test-wheel', status: 'SLOW Request', statusGroup: 'SLOW', quantity: 2, unitPrice: 9.5, requesters: ['Test Student C'] }),
-  revOrder('r1', { status: 'RUSH Request', statusGroup: 'RUSH', requesters: ['Test Student D'], cartMarks: [{ memberName: 'Test Student B', deviceLabel: 'Workshop laptop', quantity: 1, markedMs: Date.now() - 86400000, expiresMs: Date.now() + 86400000, ownDevice: false }] }),
+  revOrder('r1', { status: 'RUSH Request', statusGroup: 'RUSH', requesters: ['Test Student D'] }),
+  revOrder('r4', { description: 'Test item in another cart', sku: 'TEST-3004', cartMarks: [{ memberName: 'Test Student B', deviceLabel: 'Workshop laptop', quantity: 1, markedMs: Date.now() - 86400000, expiresMs: Date.now() + 86400000, ownDevice: false }] }),
   revOrder('r2', { description: 'Test incomplete with no SKU', sku: null, quantity: null, unitPrice: null, status: 'Incomplete Request', statusGroup: 'INCOMPLETE' }),
   revOrder('r3', { description: 'Test incomplete with everything', sku: 'TEST-3003', status: 'Incomplete Request', statusGroup: 'INCOMPLETE', quantity: 1 }),
   polOrder('p1', { unitPrice: 14.85 }),
@@ -210,14 +211,15 @@ try {
   check('Selection: SLOW starts unticked, and can be ticked', !(await ticked('w2')) && !(await disabled('w2')));
   check('Selection: Incomplete with what its store needs starts unticked, and can be ticked', !(await ticked('r3')) && !(await disabled('r3')));
   check('Incomplete: missing what its store needs is flagged and can\'t be ticked', !(await ticked('r2')) && await disabled('r2') && /Can't add yet.*REV needs a SKU and a quantity/.test(await rowText('r2')), await rowText('r2'));
-  check('Marks: "already in someone\'s cart" names who', /Already in someone's cart.*Test Student B \(Workshop laptop\), qty 1/.test(await rowText('r1')), await rowText('r1'));
+  check('Marks: "already in someone\'s cart" names who', /Already in someone's cart.*Test Student B \(Workshop laptop\), qty 1/.test(await rowText('r4')), await rowText('r4'));
+  check('Marks: already in someone\'s cart starts unticked, and can be ticked', !(await ticked('r4')) && !(await disabled('r4')));
   check('Row: requester, quantity and price show', /Test Student C/.test(await rowText('w2')) && /\$9\.50/.test(await rowText('w2')) && (await carts.$eval('tr[data-order-row="w2"]', r => r.cells[2].textContent)) === '2');
   check('Row: RUSH has its own pill', /RUSH/.test(await rowText('r1')));
-  check('Bar: counts what is ticked', (await carts.textContent('#selection-count')) === '6 of 9 items selected from 6 stores', await carts.textContent('#selection-count'));
+  check('Bar: counts what is ticked', (await carts.textContent('#selection-count')) === '6 of 10 items selected from 6 stores', await carts.textContent('#selection-count'));
   const estimate = 2 * 21.4 + 4 * 6.3 + 30 + 2 * 14.85 + 3 * 2.97 + 18;
   check('Bar: estimates the total', (await carts.textContent('#selection-total')).includes(`$${estimate.toFixed(2)}`), await carts.textContent('#selection-total'));
   await carts.click('input[data-group="wcp"]');
-  check('Group: its box ticks every row it can', await ticked('w1') && await ticked('w2') && (await carts.textContent('#selection-count')).startsWith('7 of 9'));
+  check('Group: its box ticks every row it can', await ticked('w1') && await ticked('w2') && (await carts.textContent('#selection-count')).startsWith('7 of 10'));
   await carts.click('input[data-group="wcp"]');
   check('Group: and unticks them', !(await ticked('w1')) && !(await ticked('w2')));
   await carts.click('input[data-order="w1"]');
