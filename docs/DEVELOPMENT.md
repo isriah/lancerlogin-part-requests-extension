@@ -32,7 +32,7 @@ The service worker is the only component that performs network requests, and the
 
 The Pair click calls `chrome.permissions.request` for `<origin>/*` synchronously, because Chrome only allows it during a user gesture. That is why pairing lives on the Options page: a toolbar popup closes when Chrome's prompt takes focus. The popup only prompts and opens settings.
 
-After a grant, the worker exchanges the PIN for a key with `POST /pair`, and saves the key and the site in `chrome.storage.local`. A refusal only the plugin could give (such as a wrong PIN) keeps the grant. Anything else may be a mistyped address, so the grant is removed.
+After a grant, the worker exchanges the PIN for a key with `POST /pair`, and saves the key and the site in `chrome.storage.local`. A refusal only the plugin could give (such as a wrong PIN) keeps the grant. Anything else may be a mistyped address, so the grant is removed. The browser remembers a host it granted once, so pairing again after Unpair or a removed grant shows no prompt, though `chrome.permissions.contains` is false until then.
 
 `401 pair_again` on any call forgets the key, marks the site as expired and keeps the lists and every draft. The same member's device can then pair again and send those drafts.
 

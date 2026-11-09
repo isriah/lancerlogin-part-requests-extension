@@ -8,7 +8,7 @@
 // On Windows with Edge (the default there), Chrome's real permission prompt shows, so the browser window is headed and
 // press-prompt-button.ps1 clicks Allow or Deny through UI Automation. Don't use the mouse during that part. Anywhere else, or
 // with E2E_PROMPT=stub, the test manifest also lists the site and Deny is simulated in the page, which proves less.
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -146,12 +146,16 @@ const context = await chromium.launchPersistentContext(profile, {
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, '--no-first-run', '--no-default-browser-check'],
 });
 const problems = [], allRequests = [], fontRequests = [], extensionPageRemote = [];
-function pressPrompt(button) {
+// This process also answers for the fake site, so it must never wait synchronously. A blocked event loop holds every request the
+// worker sends, and a pair request held for 40 seconds hits the client's timeout and reads as "Could not reach".
+const powershell = args => new Promise(done => execFile('powershell.exe', args, { encoding: 'utf8', timeout: 120000 }, (error, stdout, stderr) => done((stdout || stderr || error?.message || '').trim())));
+let loopLag = 0, lastTick = Date.now();
+const lagWatch = setInterval(() => { loopLag = Math.max(loopLag, Date.now() - lastTick - 250); lastTick = Date.now(); }, 250);
+async function pressPrompt(button) {
   // Playwright exposes no browser PID, so find this run's Edge by its unique profile folder.
-  const listed = execFileSync('powershell.exe', ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like '*${profile.replaceAll("'", "''")}*' -and $_.CommandLine -notlike '*--type=*' } | Select-Object -First 1).ProcessId`], { encoding: 'utf8' }).trim();
+  const listed = await powershell(['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like '*${profile.replaceAll("'", "''")}*' -and $_.CommandLine -notlike '*--type=*' } | Select-Object -First 1).ProcessId`]);
   if (!/^\d+$/.test(listed)) return `no browser process found for the test profile (${listed})`;
-  const pressed = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(here, 'press-prompt-button.ps1'), '-RootPid', listed, '-Button', button], { encoding: 'utf8' });
-  return pressed.stdout.trim() || pressed.stderr.trim();
+  return powershell(['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(here, 'press-prompt-button.ps1'), '-RootPid', listed, '-Button', button]);
 }
 try {
   await context.route(`${SITE}/**`, plugin);
@@ -264,6 +268,7 @@ try {
   await until(options, () => /does not work/.test(document.getElementById('notice').textContent), 10000);
   check(`Pairing: Allow, then a wrong PIN is explained (${realPrompt ? 'real prompt' : 'granted in manifest'})`, /does not work/.test(await textOf(options, 'notice')), `${allowed}: ${await textOf(options, 'notice')}`);
   check('Pairing: Allow grants that one site', await canReach());
+  if (realPrompt) check('Pairing: Chrome really showed the prompt that Allow pressed', allowed === 'clicked:Allow', allowed);
   check('Pairing: Allow grants no other site', !(await options.evaluate(() => chrome.permissions.contains({ origins: ['https://other-site.example.test/*'] }))));
 
   // The address and PIN as pasted: a path on the address, no hyphen in the PIN, lower case.
@@ -744,9 +749,10 @@ try {
 
   // Unpair with an expired key: the site refuses it, and the wording is the same.
   api.selfRevoke = 'ok'; api.pins.add('K7M29QXC');
-  await pairWith(SITE, 'K7M29QXC', 'Test laptop', 'Allow');
+  // Chrome remembers a host it was granted once, so this grant comes back at once with no prompt to press.
+  await pairWith(SITE, 'K7M29QXC', 'Test laptop');
   await options.waitForSelector('#paired-card:not([hidden])', { timeout: 10000 }).catch(() => {});
-  check('Pairing after an unpair asks Chrome again and works', await visible(options, '#paired-card'), await textOf(options, 'notice'));
+  check('Pairing after an unpair: Chrome gives the site back with no prompt, and pairing works', await visible(options, '#paired-card') && (realPrompt ? await canReach() : true), await textOf(options, 'notice'));
   api.selfRevoke = 'expired'; api.revoked = true;
   options.once('dialog', dialog => dialog.accept());
   await options.click('#unpair');
@@ -755,7 +761,7 @@ try {
 
   // Unpair: tells the site, frees the slot, forgets the key and the site's access, and keeps drafts.
   api.selfRevoke = 'ok'; api.pins.add('K7M29QXD');
-  await pairWith(SITE, 'K7M29QXD', 'Test laptop', 'Allow');
+  await pairWith(SITE, 'K7M29QXD', 'Test laptop');
   await options.waitForSelector('#paired-card:not([hidden])', { timeout: 10000 }).catch(() => {});
   const callsBeforeUnpair = api.calls.length;
   options.once('dialog', dialog => dialog.accept());
@@ -779,7 +785,7 @@ try {
 
   // ---- Express addition. It's off until a student turns it on, and a page's whole flow runs in the worker.
   api.selfRevoke = 'ok'; api.pins.add('K7M29QXE');
-  await pairWith(SITE, 'K7M29QXE', 'Test laptop', 'Allow');
+  await pairWith(SITE, 'K7M29QXE', 'Test laptop');
   await options.waitForSelector('#paired-card:not([hidden])', { timeout: 15000 }).catch(() => {});
   await options.selectOption('#default-team', 'team-1');
   await options.selectOption('#default-recipient', PERSON);
@@ -1081,10 +1087,12 @@ try {
   const finalStore = await options.evaluate(() => chrome.storage.local.get(null));
   check('No key is left anywhere in storage', !JSON.stringify(finalStore).includes(DEVICE_KEY) && !JSON.stringify(finalStore).includes(SECOND_KEY));
   check('No page errors, CSP errors or illegal invocations', problems.length === 0, problems.slice(0, 4).join(' | '));
+  check('The test kept answering for the fake site throughout', loopLag < 5000, `blocked for ${loopLag}ms`);
   check('The built CSP limits fonts to the extension', /font-src 'self'/.test(productionManifest.content_security_policy.extension_pages));
 } catch (error) {
   check('Run completed without crashing', false, String(error.stack || error.message).slice(0, 800));
 } finally {
+  clearInterval(lagWatch);
   await context.close();
   rmSync(work, { recursive: true, force: true, maxRetries: 3 });
 }

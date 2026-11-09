@@ -96,11 +96,15 @@ const context = await chromium.launchPersistentContext(profile, {
   ...(process.env.E2E_BROWSER ? { executablePath: process.env.E2E_BROWSER } : { channel }), headless: !realPrompt && !process.env.E2E_HEADED, viewport: { width: 1366, height: 860 },
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, '--no-first-run', '--no-default-browser-check'],
 });
-function pressPrompt(button) {
-  const listed = execFileSync('powershell.exe', ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like '*${profile.replaceAll("'", "''")}*' -and $_.CommandLine -notlike '*--type=*' } | Select-Object -First 1).ProcessId`], { encoding: 'utf8' }).trim();
+// This process also answers for the fake site, so it must never wait synchronously. A blocked event loop holds every request the
+// worker sends, and a pair request held for 40 seconds hits the client's timeout and reads as "Could not reach".
+const powershell = args => new Promise(done => execFile('powershell.exe', args, { encoding: 'utf8', timeout: 120000 }, (error, stdout, stderr) => done((stdout || stderr || error?.message || '').trim())));
+let loopLag = 0, lastTick = Date.now();
+const lagWatch = setInterval(() => { loopLag = Math.max(loopLag, Date.now() - lastTick - 250); lastTick = Date.now(); }, 250);
+async function pressPrompt(button) {
+  const listed = await powershell(['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like '*${profile.replaceAll("'", "''")}*' -and $_.CommandLine -notlike '*--type=*' } | Select-Object -First 1).ProcessId`]);
   if (!/^\d+$/.test(listed)) return `no browser process found for the test profile (${listed})`;
-  const pressed = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(here, 'press-prompt-button.ps1'), '-RootPid', listed, '-Button', button], { encoding: 'utf8' });
-  return pressed.stdout.trim() || pressed.stderr.trim();
+  return powershell(['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(here, 'press-prompt-button.ps1'), '-RootPid', listed, '-Button', button]);
 }
 const problems = [], remote = [], outsiders = [];
 const stores = createStores();
@@ -648,7 +652,7 @@ try {
     await carts.waitForSelector('#permission:not([hidden])');
     await carts.bringToFront();
     await carts.click('#permission-allow');
-    const pressed = pressPrompt('Allow');
+    const pressed = await pressPrompt('Allow');
     await carts.waitForSelector('#orders-view:not([hidden])', { timeout: 15000 });
     check('No access: Allow from this page grants what it listed, and only that', (await access(carts)).filter(Boolean).length === 2 && await carts.evaluate(() => chrome.permissions.contains({ origins: ['https://wcproducts.com/*'] })), `${pressed}: ${await access(carts)}`);
     await carts.close();
@@ -683,7 +687,7 @@ try {
   api.marksScript = [{ status: 403, body: { code: 'carts_disabled', error: 'An Admin just turned Carts off.' } }];
   if (realPrompt) {
     const grant = await carts.isVisible('#allow-later');
-    if (grant) { await carts.bringToFront(); await carts.click('#allow-later'); pressPrompt('Allow'); await sleep(800); }
+    if (grant) { await carts.bringToFront(); await carts.click('#allow-later'); await pressPrompt('Allow'); await sleep(800); }
   }
   await build(carts);
   check('Admin off during a build: says the marks weren\'t recorded, with no retry button', /An Admin just turned Carts off/.test(await carts.textContent('#marks-notice')) && !(await carts.isVisible('#retry-marks')), await carts.textContent('#marks-notice'));
@@ -718,6 +722,8 @@ try {
   await context.close().catch(() => undefined);
   try { rmSync(work, { recursive: true, force: true, maxRetries: 3 }); } catch { /* Windows can hold the profile a moment longer. */ }
 }
+clearInterval(lagWatch);
+check('The test kept answering for the fake sites throughout', loopLag < 5000, `blocked for ${loopLag}ms`);
 const failed = results.filter(r => !r.ok);
 console.log(`\n${results.length - failed.length} passed, ${failed.length} failed.`);
 process.exit(failed.length ? 1 : 0);
