@@ -92,7 +92,12 @@ export async function amazonProductPage(asin: string, quantity: number, press: b
   if (!goes || goes.origin !== location.origin || !goes.pathname.startsWith('/gp/product/handle-buy-box/') || /check\s*-?out|\/gp\/buy/i.test(goes.pathname + goes.search)) return stop('an Add to Cart form that goes somewhere else');
   const never = /check\s*-?out|buy|(^|[^a-z])pay([^a-z]|$)|place.{0,6}order|one-?click|turbo/i;
   const labels = [...(add.getAttribute('aria-labelledby') ?? '').split(/\s+/).map(id => (id && document.getElementById(id)?.textContent) || ''), add.getAttribute('aria-label') ?? '', add.tagName === 'INPUT' ? add.value : add.textContent ?? ''].map(words => words.replace(/\s+/g, ' ').trim()).filter(Boolean);
-  if (add.getAttribute('formaction') || [...labels, add.getAttribute('name') ?? ''].some(words => never.test(words)) || !labels.some(words => /^add to (?:your |shopping )?cart$/i.test(words))) return stop('an Add to Cart button with another label');
+  // Amazon's real button carries its own formaction, /cart/add-to-cart/…, which wins over the form's. Buy Now's goes to /checkout/, so only a same-site add-to-cart path is allowed.
+  const own = add.getAttribute('formaction');
+  let ownGoes: URL | null = null;
+  if (own !== null) { try { ownGoes = new URL(own, location.href); } catch { /* An unreadable address is refused below. */ } }
+  if (own !== null && (!ownGoes || ownGoes.origin !== location.origin || !ownGoes.pathname.startsWith('/cart/add-to-cart/') || /check\s*-?out|buy/i.test(ownGoes.pathname + ownGoes.search))) return stop('an Add to Cart button that goes somewhere else');
+  if ([...labels, add.getAttribute('name') ?? ''].some(words => never.test(words)) || !labels.some(words => /^add to (?:your |shopping )?cart$/i.test(words))) return stop('an Add to Cart button with another label');
   // A parent ASIN, or a link sent on to another item, shows up here. What the page would add has to be this one item.
   const inAddress = /\/dp\/([A-Z0-9]{10})(?:[/?#]|$)/i.exec(location.pathname)?.[1]?.toUpperCase();
   const named = [...new Set([...form.querySelectorAll('input[name="ASIN"]'), ...document.querySelectorAll('#ASIN')])].map(node => (node as HTMLInputElement).value.trim().toUpperCase());

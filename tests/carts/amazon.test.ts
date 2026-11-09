@@ -16,9 +16,11 @@ const cartPage = (lines: [string, number][], extra = '') => {
   const body = lines.length ? `<div id="sc-active-cart"><form id="activeCartViewForm">${lines.map(([asin, quantity]) => row(asin, quantity)).join('')}<span id="sc-subtotal-label-activecart">Subtotal (${count} item${count === 1 ? '' : 's'}):</span><input name="proceedToRetailCheckout" type="submit" value="Proceed to checkout"></form></div>` : '<div id="sc-active-cart"><h3>Your Amazon Cart is empty</h3></div>';
   return `<a id="nav-link-accountList">Hello, Test Student A</a>${body}${extra}`;
 };
-/** As seen signed in: Add to cart and Buy Now in one form, whose address has "buy" in its name, with a quantity list for "Only 6 left". */
+/** The real Add to cart button's own address, which wins over the form's. */
+const ADD_PATH = '/cart/add-to-cart/ref=dp_start-bbf_1_glance';
+/** As seen signed in: Add to cart and Buy Now in one form, whose address has "buy" in its name, each button with an address of its own, with a quantity list for "Only 6 left". */
 const quantityList = (offered = 6) => `<select id="quantity" name="quantity" autocomplete="off">${Array.from({ length: offered }, (_, index) => `<option value="${index + 1}">${index + 1}</option>`).join('')}</select>`;
-const productPage = (asin = ASIN, opts: { list?: string; add?: string; action?: string; extra?: string; formAsin?: string } = {}) => `<a id="nav-link-accountList">Hello, Test Student A</a><h1>Test panel cable</h1><input type="hidden" id="ASIN" value="${asin}"><form id="addToCart" method="post" action="${opts.action ?? '/gp/product/handle-buy-box/ref=dp_start-bbf_1_glance'}"><input type="hidden" name="ASIN" value="${opts.formAsin ?? asin}">${opts.list ?? quantityList()}<span id="submit.add-to-cart-announce">Add to Cart</span>${opts.add ?? '<input id="add-to-cart-button" type="submit" name="submit.add-to-cart" value="Add to cart" aria-labelledby="submit.add-to-cart-announce">'}<input id="buy-now-button" type="submit" name="submit.buy-now" value="Buy Now">${opts.extra ?? ''}</form>`;
+const productPage = (asin = ASIN, opts: { list?: string; add?: string; action?: string; extra?: string; formAsin?: string } = {}) => `<a id="nav-link-accountList">Hello, Test Student A</a><h1>Test panel cable</h1><input type="hidden" id="ASIN" value="${asin}"><form id="addToCart" method="post" action="${opts.action ?? '/gp/product/handle-buy-box/ref=dp_start-bbf_1_glance'}"><input type="hidden" name="ASIN" value="${opts.formAsin ?? asin}">${opts.list ?? quantityList()}<span id="submit.add-to-cart-announce">Add to Cart</span>${opts.add ?? `<input id="add-to-cart-button" type="submit" name="submit.add-to-cart" value="Add to cart" aria-labelledby="submit.add-to-cart-announce" formaction="${ADD_PATH}">`}<input id="buy-now-button" type="submit" name="submit.buy-now" value="Buy Now" formaction="/checkout/entry/buynow?asin=${asin}">${opts.extra ?? ''}</form>`;
 const SHEET = '<h1>Added to cart</h1><a id="sheet-cart" href="/gp/cart/view.html">Go to Cart</a><a id="sheet-checkout" href="/checkout/entry/cart">Proceed to checkout</a>';
 
 beforeEach(() => { vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ width: 100, height: 40 } as DOMRect); });
@@ -164,6 +166,21 @@ describe('the product page', () => {
     expect(changed).toHaveBeenCalledTimes(1);
     expect(buy).not.toHaveBeenCalled();
   });
+  it('the real button, whose own address is /cart/add-to-cart/, presses, and Buy Now\'s /checkout/ address is never used', async () => {
+    at(PATH, productPage());
+    expect(document.getElementById('add-to-cart-button')!.getAttribute('formaction')).toBe(ADD_PATH);
+    const { pressed, buy } = watch();
+    expect(await page(2, false)).toEqual({ kind: 'ready' });
+    expect(await page(2, true)).toEqual({ kind: 'pressed' });
+    expect(pressed).toEqual(['2']);
+    expect(buy).not.toHaveBeenCalled();
+    at(PATH, productPage(ASIN, { add: `<input id="add-to-cart-button" type="submit" value="Add to cart" formaction="${location.origin}${ADD_PATH}">` }));
+    expect(await page(2, false)).toEqual({ kind: 'ready' });
+  });
+  it('a button with no address of its own still passes on the form\'s', async () => {
+    at(PATH, productPage(ASIN, { add: '<input id="add-to-cart-button" type="submit" value="Add to cart">' }));
+    expect(await page(2, false)).toEqual({ kind: 'ready' });
+  });
   it('the real form address, with "buy" in its name, passes, and so does a page address with a title', async () => {
     at(`/Test-Panel-Cable/dp/${ASIN}`, productPage(ASIN, { action: 'https://www.amazon.com/gp/product/handle-buy-box/ref=x'.replace('https://www.amazon.com', location.origin) }));
     expect(await page(2, false)).toEqual({ kind: 'ready' });
@@ -174,7 +191,14 @@ describe('the product page', () => {
     ['the right path with checkout after it', () => productPage(ASIN, { action: '/gp/product/handle-buy-box/checkout' }), 'goes somewhere else'],
     ['a form going off the store', () => productPage(ASIN, { action: 'https://example.test/gp/product/handle-buy-box/x' }), 'goes somewhere else'],
     ['a form with no address', () => productPage(ASIN).replace(/ action="[^"]*"/, ' action="//"'), 'goes somewhere else'],
-    ['a button with an address of its own', () => productPage(ASIN, { add: '<input id="add-to-cart-button" type="submit" value="Add to cart" formaction="/gp/buy/spc">' }), 'another label'],
+    ['a button with an address of its own on the buy path', () => productPage(ASIN, { add: '<input id="add-to-cart-button" type="submit" value="Add to cart" formaction="/gp/buy/spc">' }), 'button that goes somewhere else'],
+    ['a button whose address is Buy Now\'s', () => productPage(ASIN, { add: `<input id="add-to-cart-button" type="submit" value="Add to cart" formaction="/checkout/entry/buynow?asin=${ASIN}">` }), 'button that goes somewhere else'],
+    ['a button whose address is checkout', () => productPage(ASIN, { add: '<input id="add-to-cart-button" type="submit" value="Add to cart" formaction="/checkout/entry/cart">' }), 'button that goes somewhere else'],
+    ['the add-to-cart path with checkout after it', () => productPage(ASIN, { add: '<input id="add-to-cart-button" type="submit" value="Add to cart" formaction="/cart/add-to-cart/checkout">' }), 'button that goes somewhere else'],
+    ['the add-to-cart path with buy in its query', () => productPage(ASIN, { add: '<input id="add-to-cart-button" type="submit" value="Add to cart" formaction="/cart/add-to-cart/x?then=buynow">' }), 'button that goes somewhere else'],
+    ['the add-to-cart path on another site', () => productPage(ASIN, { add: '<input id="add-to-cart-button" type="submit" value="Add to cart" formaction="https://example.test/cart/add-to-cart/x">' }), 'button that goes somewhere else'],
+    ['an empty address of its own', () => productPage(ASIN, { add: '<input id="add-to-cart-button" type="submit" value="Add to cart" formaction="">' }), 'button that goes somewhere else'],
+    ['the right address on a button labeled Buy Now', () => productPage(ASIN, { add: `<input id="add-to-cart-button" type="submit" value="Buy Now" formaction="${ADD_PATH}">` }), 'another label'],
     ['a button labeled Buy Now', () => productPage(ASIN, { add: '<input id="add-to-cart-button" type="submit" value="Buy Now">' }), 'another label'],
     ['a button announced as something else', () => productPage(ASIN, { add: '<input id="add-to-cart-button" type="submit" value="Continue">' }).replace('Add to Cart</span>', 'x</span>'), 'another label'],
     ['two buttons with that id', () => productPage(ASIN, { extra: '<input id="add-to-cart-button" type="submit" value="Add to cart">' }), 'more than one'],

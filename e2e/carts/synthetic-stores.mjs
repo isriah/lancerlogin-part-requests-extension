@@ -164,7 +164,7 @@ export function createStores() {
     note('mcmaster', request);
     return wall(route, s.mode) ?? html(route, mcmCart(s));
   }
-  // Home Depot and Ali Express, from what was seen in a signed-in browser. The cart rows arrive late, as the real ones do.
+  // Home Depot and Ali Express, from what was seen in a signed-in browser. The cart rows arrive late, as the real ones do, and an Ali Express row's option sits in one sku box inside another, as in the third real run.
   const report = (path, body) => `fetch('${path}', { method: 'POST', body: ${body} })`;
   const hdProduct = () => page('Test Hex Nut', `<span data-testid="header-cart-count">0</span><h1>Test hex nut</h1><div data-component="price:Price:v1">14 ¢</div>
     <button data-testid="deliveryTile" aria-pressed="true">Delivery</button><button data-testid="pickupTile" aria-pressed="false">Pickup</button><button>Please Select</button>
@@ -195,7 +195,7 @@ export function createStores() {
     return html(route, url.pathname === '/cart' ? hdCart(s) : hdProduct());
   }
   const aliListing = () => page('Test wire', `<h1>Test wire</h1><div class="price--current--x">$0.46</div>
-    <div data-sku-row="14"><div data-sku-col="14-1" title="0.8mm (5Meter)" class="sku-item--text--x"><span>0.8mm (5Meter)</span></div><div data-sku-col="14-2" title="1.0mm (5Meter)" class="sku-item--text--x sku-item--selected--x"><span>1.0mm (5Meter)</span></div></div>
+    <div data-sku-row="14"><div data-sku-col="14-1" title="0.8mm (5Meter)" class="sku-item--text--x"><span>0.8mm (5Meter)</span></div><div data-sku-col="14-2" title="1.0mm (5Meter)" class="sku-item--text--x sku-item--selected--x"><span>1.0mm (5Meter)</span></div><div data-sku-col="14-3" title="8mm (5Meter)" class="sku-item--text--x"><span>8mm (5Meter)</span></div></div>
     <input class="comet-v2-input-number-input" value="1"><button id="buy">Buy now</button><button id="add"><span>Add to cart</span></button><div class="cart-product"><a href="/item/3256800000000009.html">Mini-cart row</a><input class="comet-v2-input-number-input" value="4"></div>`, `
     document.querySelectorAll('[data-sku-col]').forEach(col => col.addEventListener('click', () => {
       document.querySelectorAll('[data-sku-col]').forEach(other => { other.className = 'sku-item--text--x'; });
@@ -203,7 +203,7 @@ export function createStores() {
     }));
     document.getElementById('buy').addEventListener('click', () => ${report('/synthetic-other', "'buy'")});
     document.getElementById('add').addEventListener('click', () => ${report('/synthetic-add', "JSON.stringify([document.querySelector('[data-sku-col][class*=selected]').title, document.querySelector('input').value])")});`);
-  const aliRows = s => [...s.cart].map(([name, q]) => `<div class="cart-product"><a href="//www.aliexpress.us/item/3256800000000001.html">Test wire</a><div>${name}</div><input class="comet-v2-input-number-input" value="${q}"></div>`).join('');
+  const aliRows = s => [...s.cart].map(([name, q]) => `<div class="cart-product"><a href="//www.aliexpress.us/item/3256800000000001.html">Test wire</a><div class="cart-product-sku"><span class="skuStr">${name}</span></div><input class="comet-v2-input-number-input" value="${q}"></div>`).join('');
   const aliCart = s => page(`Cart (${s.cart.size})`, `<h1>Cart (${s.cart.size})</h1><div id="rows"></div><button id="pay">Checkout</button>`, `
     setTimeout(() => { document.getElementById('rows').innerHTML = ${JSON.stringify(aliRows(s))}; }, 700);`);
   async function aliexpress(route) {

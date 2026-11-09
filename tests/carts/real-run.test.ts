@@ -4,8 +4,8 @@ import { interpretOrders } from '../../src/client';
 import { blockedReason, groupOrders, leftOutOf, rowFor } from '../../src/carts/selection';
 import { buildStore, stopMessage } from '../../src/carts/runner';
 import { StoreStop, type StoreTab } from '../../src/carts/store-method';
-import { aliexpressPressAdd, aliexpressReadListing, isUsdPrice } from '../../src/carts/stores/aliexpress';
-import { amazonReadCart } from '../../src/carts/stores/amazon';
+import { aliexpressKey, aliexpressPressAdd, aliexpressReadCart, aliexpressReadListing, isUsdPrice } from '../../src/carts/stores/aliexpress';
+import { amazonProductPage, amazonReadCart } from '../../src/carts/stores/amazon';
 import { harborFreightReadCart, harborFreightSku, harborfreight } from '../../src/carts/stores/harborfreight';
 import { mcmaster, mcmasterPasteLine, mcmasterReadCart } from '../../src/carts/stores/mcmaster';
 import { onlineMetalsReadCart } from '../../src/carts/stores/onlinemetals';
@@ -499,6 +499,84 @@ describe('run 2: Ali Express\'s mini-cart on the listing page', () => {
   });
 });
 
+describe('run 3: Amazon\'s Add to cart button has an address of its own', () => {
+  const ASIN = 'B0TESTAAA1', PATH = `/dp/${ASIN}`;
+  const ADD = '/cart/add-to-cart/ref=dp_start-bbf_1_glance';
+  /** As seen: both buttons in form#addToCart, whose address is the buy box's, and each button with its own formaction. */
+  const page = (addAction: string | null) => `<a id="nav-link-accountList">Hello, Test Student A</a><h1>Test panel cable</h1><input type="hidden" id="ASIN" value="${ASIN}"><form id="addToCart" method="post" action="/gp/product/handle-buy-box/ref=dp_start-bbf_1_glance"><input type="hidden" name="ASIN" value="${ASIN}"><select id="quantity" name="quantity"><option value="1">1</option><option value="2">2</option></select><input id="add-to-cart-button" type="submit" name="submit.add-to-cart" value="Add to cart"${addAction === null ? '' : ` formaction="${addAction}"`}><input id="buy-now-button" type="submit" name="submit.buy-now" value="Buy Now" formaction="/checkout/entry/buynow?asin=${ASIN}"></form>`;
+  const watch = () => {
+    const add = vi.fn((event: Event) => event.preventDefault()), buy = vi.fn((event: Event) => event.preventDefault());
+    document.getElementById('add-to-cart-button')!.addEventListener('click', add);
+    document.getElementById('buy-now-button')!.addEventListener('click', buy);
+    return { add, buy };
+  };
+  it('the real button is ready, and presses, and Buy Now is never pressed', async () => {
+    at(PATH, page(ADD));
+    const { add, buy } = watch();
+    expect(await amazonProductPage(ASIN, 2, false, 0)).toEqual({ kind: 'ready' });
+    expect(add).not.toHaveBeenCalled();
+    expect(await amazonProductPage(ASIN, 2, true, 0)).toEqual({ kind: 'pressed' });
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(buy).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['Buy Now\'s checkout address', `/checkout/entry/buynow?asin=${ASIN}`],
+    ['the cart\'s checkout', '/checkout/entry/cart'],
+    ['the add-to-cart path on another site', 'https://example.test/cart/add-to-cart/ref=x'],
+    ['another path on the store', '/gp/product/handle-buy-box/ref=x'],
+  ])('a button going to %s stops, with nothing pressed', async (_name, action) => {
+    at(PATH, page(action));
+    const { add, buy } = watch();
+    expect(await amazonProductPage(ASIN, 2, true, 0)).toEqual({ kind: 'stop', reason: 'unexpected', detail: 'an Add to Cart button that goes somewhere else', notSent: true });
+    expect(add).not.toHaveBeenCalled();
+    expect(buy).not.toHaveBeenCalled();
+  });
+});
+
+describe('run 3: Ali Express\'s cart row nests one sku box in another', () => {
+  const ITEM = '3256802967050384', CART = '/p/shoppingcart/index.html';
+  /** The listing's options as seen, typo included. */
+  const KNOWN = ['0.8mm (5Meter)', '1mm (5Meter)', '1.5mm (5eter)', '2mm (5Meter)', '5mm (5Meter)', '8mm (5Meter)', '15mm (1Meter)'];
+  const keyFor = (name: string) => aliexpressKey(ITEM, [name], [KNOWN.map(option => ({ name: option, selected: false, soldOut: false }))]);
+  const THIN = keyFor('0.8mm (5Meter)'), THICK = keyFor('8mm (5Meter)');
+  /** As seen: .cart-product-sku holding .skuStr, both reading the option. */
+  const nested = (option: string, quantity: number) => `<div class="cart-product"><a href="//www.aliexpress.us/item/${ITEM}.html">Test solder wire</a><div class="cart-product-sku"><span class="skuStr">${option}</span></div><input class="comet-v2-input-number-input" value="${quantity}"></div>`;
+  const single = (option: string, quantity: number) => `<div class="cart-product"><a href="//www.aliexpress.us/item/${ITEM}.html">Test solder wire</a><div class="cart-product-sku">${option}</div><input class="comet-v2-input-number-input" value="${quantity}"></div>`;
+  const cart = (rows: string[]) => `<h1>Cart (${rows.length})</h1>${rows.join('')}<button>Checkout</button>`;
+  const read = (keys: string[]) => aliexpressReadCart(keys, 200, 10);
+  it('reads 0.8mm at its quantity, with 8mm also on the listing', async () => {
+    at(CART, cart([nested('0.8mm (5Meter)', 2)]));
+    expect(await read([THIN])).toEqual([{ key: THIN, quantity: 2 }]);
+  });
+  it('and that row isn\'t 8mm, so 8mm reads as not in the cart rather than stopping', async () => {
+    at(CART, cart([nested('0.8mm (5Meter)', 2)]));
+    expect(await read([THICK])).toEqual([]);
+    expect(await read([THIN, THICK])).toEqual([{ key: THIN, quantity: 2 }]);
+  });
+  it('8mm by itself in a row still matches 8mm, and not 0.8mm', async () => {
+    at(CART, cart([nested('8mm (5Meter)', 3)]));
+    expect(await read([THICK])).toEqual([{ key: THICK, quantity: 3 }]);
+    expect(await read([THIN])).toEqual([]);
+    at(CART, cart([single('8mm (5Meter)', 1)]));
+    expect(await read([THICK])).toEqual([{ key: THICK, quantity: 1 }]);
+  });
+  it('both rows in one cart each read their own', async () => {
+    at(CART, cart([nested('0.8mm (5Meter)', 2), nested('8mm (5Meter)', 3)]));
+    expect(await read([THIN, THICK])).toEqual([{ key: THIN, quantity: 2 }, { key: THICK, quantity: 3 }]);
+  });
+  it('a decimal after the name is part of the number too, and a single box still reads', async () => {
+    const short = aliexpressKey(ITEM, ['8'], [[{ name: '8', selected: false, soldOut: false }, { name: '8.5', selected: false, soldOut: false }]]);
+    at(CART, cart([single('8.5', 1)]));
+    expect(await read([short])).toEqual([]);
+    at(CART, cart([single('0.8mm (5Meter)', 4)]));
+    expect(await read([THIN])).toEqual([{ key: THIN, quantity: 4 }]);
+  });
+  it('an outer box with more words keeps them, and its inner copy isn\'t counted twice', async () => {
+    at(CART, cart([`<div class="cart-product"><a href="/item/${ITEM}.html">x</a><div class="cart-product-sku">Size: <span class="skuStr">0.8mm (5Meter)</span></div><input class="comet-v2-input-number-input" value="2"></div>`]));
+    expect(await read([THIN])).toEqual([{ key: THIN, quantity: 2 }]);
+  });
+});
+
 describe('the changed functions stay self-contained', () => {
   it.each([
     ['mcmasterReadCart', mcmasterReadCart, ['1A1', 0, 0]],
@@ -509,6 +587,8 @@ describe('the changed functions stay self-contained', () => {
     ['aliexpressReadListing', aliexpressReadListing, ['1', 0]],
     ['aliexpressPressAdd', aliexpressPressAdd, ['1', [], 1, 0, 0]],
     ['harborFreightReadCart', harborFreightReadCart, [['94725'], 0, 0]],
+    ['amazonProductPage', amazonProductPage, ['B0TESTAAA1', 1, false, 0]],
+    ['aliexpressReadCart', aliexpressReadCart, [['{"item":"1","pick":[],"options":[],"known":[]}'], 0, 0]],
   ] as [string, (...args: unknown[]) => unknown, unknown[]][])('%s runs from its own text alone, as Chrome runs it', async (_name, func, args) => {
     document.body.innerHTML = '<h1>Nothing here</h1>';
     const copy = new Function(`return (${func.toString()})`)() as (...args: unknown[]) => unknown;

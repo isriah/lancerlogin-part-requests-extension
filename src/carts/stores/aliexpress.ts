@@ -108,7 +108,8 @@ export async function aliexpressReadCart(keys: string[], waitMs = 20_000, settle
     for (const name of [...known].sort((a, b) => b.length - a.length)) {
       for (let at = text.indexOf(name); at !== -1; at = text.indexOf(name, at + 1)) {
         const before = text[at - 1] ?? ' ', after = text[at + name.length] ?? ' ';
-        if (/[A-Za-z0-9]/.test(before) || /[A-Za-z0-9]/.test(after)) continue;
+        // A decimal point belongs to the number, so "8mm" isn't found inside "0.8mm".
+        if (/[A-Za-z0-9]/.test(before) || /[A-Za-z0-9]/.test(after) || (before === '.' && /\d/.test(text[at - 2] ?? '')) || (after === '.' && /\d/.test(text[at + name.length + 1] ?? ''))) continue;
         found.push(name);
         text = `${text.slice(0, at)} ${text.slice(at + name.length)}`;
         break;
@@ -141,7 +142,8 @@ export async function aliexpressReadCart(keys: string[], waitMs = 20_000, settle
           // Where the option is most likely to be written, then the row without its title, then all of it.
           const plain = row.cloneNode(true) as Element;
           plain.querySelectorAll('a').forEach(link => link.remove());
-          const places = [[...row.querySelectorAll('[class*="sku"]')].map(node => words(node.textContent)).join(' , '), words(plain.textContent), words(row.textContent)];
+          // AliExpress nests one sku box inside another, so the same text is kept once.
+          const places = [[...new Set([...row.querySelectorAll('[class*="sku"]')].map(node => words(node.textContent)).filter(Boolean))].filter((piece, _, all) => !all.some(other => other !== piece && other.includes(piece))).join(' , '), words(plain.textContent), words(row.textContent)];
           const found = places.map(place => optionsIn(place, known)).find(list => list.length) ?? [];
           if (!found.length) { problem = 'a cart line this could not read'; continue; }
           const hasAll = options.every(name => found.includes(name));
