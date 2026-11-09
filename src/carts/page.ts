@@ -7,7 +7,7 @@ import { ChromeStoreTab } from './chrome-tab';
 import { allStoreOrigins, OTHER_STORE } from './registry';
 import { buildStore, checklistResult, marksFor, stopMessage, type ItemResult, type StoreResult } from './runner';
 import { CART_SETTLE_MS, paceMs } from './safety';
-import { groupOrders, isTicked, summarize, untickAll, type OrderRow, type StoreGroup } from './selection';
+import { groupOrders, isTicked, leftOutOf, summarize, untickAll, type LeftOutRow, type OrderRow, type StoreGroup } from './selection';
 import { BADGE_LABEL, StoreStop, type StoreBadge, type StoreMethod } from './store-method';
 import type { CartMark, MarkInput, MarksOutcome, OrdersList, OrdersOutcome } from './types';
 
@@ -26,6 +26,8 @@ let declined = false;
 let building = false;
 let stopRequested = false;
 let results: StoreResult[] = [];
+/** The rows this build didn't include, as they stood when it started, so the results can account for every row. */
+let leftOut: LeftOutRow[] = [];
 let builtAt = 0;
 let unsentMarks: MarkInput[] = [];
 let loadGeneration = 0;
@@ -306,6 +308,7 @@ el('retry-marks').addEventListener('click', () => {
 async function build(): Promise<void> {
   clearTimeout(timer);
   building = true; stopRequested = false; unsentMarks = []; results = [];
+  leftOut = leftOutOf(groups, ticks);
   el<HTMLButtonElement>('stop').disabled = false;
   renderTable();
   el('selection-count').textContent = 'Building carts...';
@@ -334,7 +337,9 @@ async function build(): Promise<void> {
       });
     } catch (error) {
       const reason = error instanceof StoreStop ? error.reason : 'unexpected';
-      result = checklistResult(store, orders, { stopped: { reason, message: stopMessage(store.label, reason) } });
+      // An error's own words could hold anything, so only a StoreStop's fixed ones are shown.
+      const detail = error instanceof StoreStop ? error.detail : 'an error inside this extension, not on the store\'s page';
+      result = checklistResult(store, orders, { stopped: { reason, message: stopMessage(store.label, reason), ...(detail ? { detail } : {}) } });
     } finally {
       await tab?.close();
     }
@@ -379,9 +384,10 @@ function storeCard(result: StoreResult): HTMLElement {
   if (checklist.length) counts.append(pill(`${checklist.length} to add yourself`));
   const card = h('section', { className: 'ui-card' }, h('div', { className: 'x-card-head' }, h('h2', {}, result.label), badge(result.badge, result.noAccess ? 'No store access, so this is a list for you to add yourself' : '')), counts);
   card.dataset.result = result.storeId;
-  if (result.stopped) card.append(h('p', { className: 'x-tone x-result-stop', tone: 'warning' }, result.stopped.message));
+  const saw = (detail?: string): (Node | string)[] => detail ? [h('br'), `What it saw: ${detail}`] : [];
+  if (result.stopped) card.append(h('p', { className: 'x-tone x-result-stop', tone: 'warning' }, result.stopped.message, ...saw(result.stopped.detail)));
   if (result.noAccess) card.append(h('p', { className: 'x-help x-result-stop' }, 'This extension has no access to this store, so nothing was tried.'));
-  if (result.finalCheckNote) card.append(h('p', { className: 'x-tone x-result-stop', tone: 'warning' }, result.finalCheckNote));
+  if (result.finalCheckNote) card.append(h('p', { className: 'x-tone x-result-stop', tone: 'warning' }, result.finalCheckNote, ...saw(result.finalCheckDetail)));
   if (result.resultNote && (added.length || flagged.length)) card.append(h('p', { className: 'x-help x-result-stop' }, result.resultNote));
   const standOut = (title: string, items: ItemResult[], extra = ''): void => {
     if (!items.length) return;
@@ -407,6 +413,16 @@ function storeCard(result: StoreResult): HTMLElement {
   }
   return card;
 }
+/** Every open order the build didn't include, and why, so that a store with nothing ticked doesn't just go missing from the results. */
+function leftOutCard(rows: LeftOutRow[]): HTMLElement {
+  const card = h('section', { className: 'ui-card' }, h('div', { className: 'x-card-head' }, h('h2', {}, 'Not in this build')), resultGroup('Nothing was tried for these', rows.map(({ order, store, why }) => {
+    const title = h('span', {}, `${store.label}: ${order.description ?? 'No description'}, qty ${order.quantity ?? '?'}`);
+    title.append(h('small', {}, why));
+    return h('li', {}, h('span', { className: 'x-mark', ariaHidden: 'true' }, '-'), title);
+  })));
+  card.dataset.leftOut = 'true';
+  return card;
+}
 function renderResults(): void {
   hideAll();
   el('results-view').hidden = false;
@@ -415,8 +431,8 @@ function renderResults(): void {
   el('results-when').textContent = `Built ${today ? 'today' : shortDate(builtAt)} at ${clockTime(builtAt)}`;
   const changed = results.reduce((sum, result) => sum + result.items.filter(item => item.storeChanged).length, 0);
   const rounded = results.reduce((sum, result) => sum + result.items.filter(item => item.rounded).length, 0);
-  el('results-counts').textContent = `${count('added')} added, ${count('flagged')} flagged, ${count('failed')} failed, ${count('checklist')} to add yourself${changed ? `. ${changed} changed by the store: check before ordering` : ''}${rounded ? `. ${rounded} rounded up to what the store sells: check before ordering` : ''}`;
-  el('results').replaceChildren(...results.map(storeCard));
+  el('results-counts').textContent = `${count('added')} added, ${count('flagged')} flagged, ${count('failed')} failed, ${count('checklist')} to add yourself${changed ? `. ${changed} changed by the store: check before ordering` : ''}${rounded ? `. ${rounded} rounded up to what the store sells: check before ordering` : ''}${leftOut.length ? `. ${leftOut.length} not in this build` : ''}`;
+  el('results').replaceChildren(...results.map(storeCard), ...(leftOut.length ? [leftOutCard(leftOut)] : []));
 }
 el('back').addEventListener('click', () => { void load(); });
 window.addEventListener('beforeunload', event => { if (building) event.preventDefault(); });

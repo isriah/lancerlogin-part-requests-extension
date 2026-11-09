@@ -1,5 +1,5 @@
-// Online Metals' injected functions and its whole flow, against synthetic pages shaped like its product page. No real store is contacted. The cart page's
-// shape is the Hybris pattern: a real one has not been seen, because /en/cart answers a fresh browser with Cloudflare's 403.
+// Online Metals' injected functions and its whole flow, against synthetic pages shaped like its product page. No real store is contacted. A fresh browser
+// gets Cloudflare's 403 at /en/cart. The cart page's real shape, seen in a signed-in browser, is in real-run.test.ts.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

@@ -1,5 +1,5 @@
-// McMaster's order page: "Paste part numbers and quantities", then ADD, then read the lines back. It has never run against a signed-in account,
-// because a fresh browser gets a login wall, which stops the store like any other wall. docs/CARTS.md says what the owner has to check.
+// McMaster's order page: "Paste part numbers and quantities" opens #bulk-lines-textarea, its Add makes a line, and a line is two input boxes, not text. These
+// shapes come from the owner's signed-in browser, with one line added by hand. A fresh browser gets a login wall, which stops the store like any other wall.
 import { stopIf, type CartLine, type PageStop, type StoreMethod } from '../store-method';
 import type { CartOrder } from '../types';
 
@@ -13,63 +13,87 @@ export function mcmasterPart(order: Pick<CartOrder, 'productUrl' | 'sku'>): stri
   try { return /^\/(\d+[A-Z]\d+)(?:\/|$)/i.exec(new URL(order.productUrl ?? '').pathname)?.[1]?.toUpperCase() ?? null; } catch { return null; }
 }
 /**
- * Injected on the order page. Reads the quantity box on the same line as each part number, and hands back only the lines asked for. The order
- * page has to be recognizable, so that "not on the page" can mean "not in the cart" and not "the page changed". It draws itself after loading, so
- * this waits for either the order page or a sign-in. The sign-in stops the store here, because the check after loading runs too soon to see it.
+ * Injected on the order page. A line is an input holding the part number and another holding its quantity, with the same trailing number in their ids, and
+ * only the lines asked for are handed back. The order page has to be recognizable, so that "not on the page" can mean "not in the cart" and not "the page
+ * changed". It draws itself after loading, so this waits for the order page or a sign-in, then for its lines to hold still. A sign-in stops the store here,
+ * because the check after loading runs too soon to see it.
  */
-export async function mcmasterReadCart(keys: string[], waitMs = 10_000): Promise<CartLine[] | PageStop> {
+export async function mcmasterReadCart(keys: string[], waitMs = 10_000, settleMs = 1000): Promise<CartLine[] | PageStop> {
   const started = Date.now();
+  const shown = (node: Element) => { const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0; };
   // What a person can see, so that words in the page's scripts don't count. The sign-in is checked first, because it can sit over a hidden order page.
   const visibleText = () => document.body?.innerText ?? document.body?.textContent ?? '';
+  let last = '', since = Date.now();
   for (;;) {
-    const shownPassword = [...document.querySelectorAll('input[type="password"]')].some(node => { const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0; });
-    if (shownPassword || /please log in|log in to continue/i.test(visibleText())) return { kind: 'stop', reason: 'login', detail: 'a sign-in page' };
-    if (/paste part numbers/i.test(visibleText())) break;
-    if (Date.now() - started >= waitMs) return { kind: 'stop', reason: 'unexpected', detail: 'an order page without the paste control' };
-    await new Promise(done => setTimeout(done, 250));
-  }
-  const lines: CartLine[] = [];
-  for (const key of keys) {
-    const holders = [...document.querySelectorAll('a,span,div,td')].filter(node => node.children.length === 0 && (node.textContent || '').trim().toUpperCase() === key);
-    let quantity = 0, found = false;
-    for (const holder of holders) {
-      const row = holder.closest('tr,[role="row"],li,[class*="line" i],[class*="row" i]');
-      const box = row?.querySelector('input:not([type="hidden"]):not([type="checkbox"])') as HTMLInputElement | null;
-      if (!box) continue;
-      const value = Number(box.value);
-      if (!Number.isFinite(value)) return { kind: 'stop', reason: 'unexpected', detail: 'an order line with no quantity' };
-      quantity += value; found = true;
+    const text = visibleText();
+    if ([...document.querySelectorAll('input[type="password"]')].some(shown) || /please log in|log in to continue/i.test(text)) return { kind: 'stop', reason: 'login', detail: 'a sign-in page' };
+    // The words go once the paste box is open, and a page with lines may read differently, so the boxes count too.
+    const recognized = /paste part numbers/i.test(text) || [...document.querySelectorAll('#bulk-lines-textarea,.new-line-part-number-input,.line-part-number-input')].some(shown);
+    let drawing = false;
+    if (recognized) {
+      // An empty new row is new-line-part-number-input-N, and never a line.
+      const parts = ([...document.querySelectorAll('.line-part-number-input')] as HTMLInputElement[]).filter(box => !box.classList.contains('new-line-part-number-input') && !box.id.startsWith('new-line-'));
+      const amounts = ([...document.querySelectorAll('.line-quantity-input')] as HTMLInputElement[]).filter(box => !box.classList.contains('new-line-quantity-input') && !box.id.startsWith('new-line-'));
+      const lines = new Map<string, number>();
+      let problem = '';
+      for (const part of parts) {
+        const key = part.value.trim().toUpperCase();
+        if (!keys.includes(key)) continue;
+        const number = /-(\d+)$/.exec(part.id)?.[1];
+        const boxes = number === undefined ? [] : amounts.filter(box => /-(\d+)$/.exec(box.id)?.[1] === number);
+        if (boxes.length !== 1) { problem = 'an order line with no quantity box'; continue; }
+        if (!/^\d+$/.test(boxes[0].value.trim())) { problem = 'an order line with no quantity'; continue; }
+        lines.set(key, (lines.get(key) ?? 0) + Number(boxes[0].value));
+      }
+      // A total with no lines means the lines haven't drawn yet, or are somewhere this can't see. That can't read as zero, which would double a retry.
+      const total = Number(/merchandise\s*\$\s*([\d,]*\.?\d+)/i.exec(text)?.[1]?.replaceAll(',', '') ?? 0);
+      drawing = total > 0 && !parts.some(part => part.value.trim());
+      const state = JSON.stringify([parts.map(part => part.value), amounts.map(box => box.value), problem]);
+      if (state !== last) { last = state; since = Date.now(); }
+      if (!drawing && Date.now() - since >= settleMs) {
+        if (problem) return { kind: 'stop', reason: 'unexpected', detail: problem };
+        return keys.filter(key => lines.has(key)).map(key => ({ key, quantity: lines.get(key)! }));
+      }
     }
-    if (found) lines.push({ key, quantity });
-    else if (holders.length) return { kind: 'stop', reason: 'unexpected', detail: 'an order line this could not read' };
+    if (Date.now() - started >= waitMs) return { kind: 'stop', reason: 'unexpected', detail: !recognized ? 'an order page without the paste control' : drawing ? 'an order total with no lines to read' : 'an order page that kept changing' };
+    await new Promise(done => setTimeout(done, 100));
   }
-  return lines;
 }
-/** Injected on the order page. Opens the paste box, enters one line and presses its ADD. It touches no other control, and checks that first. */
+/**
+ * Injected on the order page. Opens the paste box if it isn't open, enters one line in that box and no other, and presses its Add. It touches no other control,
+ * and checks that first. The page also shows a feedback box, #message-input, which comes first in the document, so "the first text box" would be the wrong one.
+ */
 export async function mcmasterPasteLine(part: string, quantity: number): Promise<{ kind: 'sent' } | PageStop> {
   const wait = (ms: number) => new Promise(done => setTimeout(done, ms));
   const shown = (node: Element) => { const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0; };
   const never = /check\s?out|place (your )?order|submit order|buy|pay/i;
   const label = (node: Element) => `${node.textContent || ''} ${node.getAttribute('aria-label') || ''} ${node.getAttribute('title') || ''}`.replace(/\s+/g, ' ').trim();
-  const opener = [...document.querySelectorAll('a,button,[role="button"],span,div')].filter(node => shown(node) && /^paste part numbers and quantities$/i.test((node.textContent || '').replace(/\s+/g, ' ').trim())).pop() as HTMLElement | undefined;
+  const stop = (detail: string): PageStop => ({ kind: 'stop', reason: 'unexpected', detail, notSent: true });
+  const pasteBox = () => { const box = document.getElementById('bulk-lines-textarea') as HTMLTextAreaElement | null; return box?.tagName === 'TEXTAREA' && shown(box) ? box : null; };
   if ([...document.querySelectorAll('input[type="password"]')].some(shown)) return { kind: 'stop', reason: 'login', detail: 'a sign-in page', notSent: true };
-  if (!opener || never.test(label(opener))) return { kind: 'stop', reason: 'unexpected', detail: 'an order page without the paste control', notSent: true };
-  opener.click();
-  let box: HTMLTextAreaElement | undefined;
-  for (let tries = 0; tries < 25 && !box; tries++) {
-    box = [...document.querySelectorAll('textarea')].find(shown);
-    if (!box) await wait(200);
+  let box = pasteBox();
+  if (!box) {
+    const openers = [...document.querySelectorAll('button.switch-mode-link')].filter(node => shown(node) && /^paste part numbers and quantities$/i.test((node.textContent || '').replace(/\s+/g, ' ').trim())) as HTMLElement[];
+    if (openers.length !== 1 || never.test(label(openers[0]))) return stop('an order page without the paste control');
+    openers[0].click();
+    for (let tries = 0; tries < 25 && !box; tries++) {
+      box = pasteBox();
+      if (!box) await wait(200);
+    }
+    if (!box) return stop('the paste box did not open');
   }
-  if (!box) return { kind: 'stop', reason: 'unexpected', detail: 'the paste box did not open', notSent: true };
   // The page's own framework watches for input events, so the value goes in the way a paste would and the event follows.
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, `${part}\t${quantity}`);
+  const line = `${part}\t${quantity}`;
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, line);
   box.dispatchEvent(new Event('input', { bubbles: true }));
   box.dispatchEvent(new Event('change', { bubbles: true }));
   await wait(200);
-  const area = box.closest('form,[role="dialog"],section') ?? box.parentElement?.parentElement ?? box.parentElement;
-  const add = [...(area?.querySelectorAll('button,input[type="submit"],input[type="button"],[role="button"],a') ?? [])].find(node => shown(node) && /^add$/i.test(((node as HTMLInputElement).value || node.textContent || '').trim()) && !never.test(label(node))) as HTMLElement | undefined;
-  if (!add) return { kind: 'stop', reason: 'unexpected', detail: 'the paste box has no ADD button', notSent: true };
-  add.click();
+  if (box.value !== line) return stop('the paste box did not keep this line');
+  // It isn't inside a form or a section, so it's found by its own classes, and still has to say Add and nothing about checkout.
+  const adds = [...document.querySelectorAll('button.button-primary.button-add-bulk-lines')].filter(shown) as HTMLButtonElement[];
+  const address = adds.length === 1 ? `${adds[0].getAttribute('formaction') ?? ''} ${adds[0].closest('form')?.getAttribute('action') ?? ''}` : '';
+  if (adds.length !== 1 || !/^add$/i.test((adds[0].textContent || '').trim()) || never.test(label(adds[0])) || /check\s?out|\bbuy\b|\bpay\b|place.?order/i.test(address) || adds[0].disabled) return stop('the paste box has no ADD button');
+  adds[0].click();
   await wait(1500);
   return { kind: 'sent' };
 }

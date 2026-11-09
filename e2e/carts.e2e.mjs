@@ -26,7 +26,7 @@ const check = (name, ok, detail = '') => { results.push({ name, ok }); console.l
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 const productionManifest = JSON.parse(readFileSync(join(root, 'dist', 'manifest.json'), 'utf8'));
-check('Manifest: version 0.7.0', productionManifest.version === '0.7.0');
+check('Manifest: version 0.7.1', productionManifest.version === '0.7.1');
 check('Manifest: no cookie, web-request or always-on host access', !/cookies|webRequest|declarativeNet/.test(JSON.stringify(productionManifest)) && !productionManifest.host_permissions);
 const extension = join(work, 'extension');
 cpSync(join(root, 'dist'), extension, { recursive: true });
@@ -369,6 +369,10 @@ try {
   check('REV: added with action=add', stores.state.rev.cart.get('TEST-3001') === 1 && stores.state.adds().filter(a => a.store === 'rev').every(a => /action=add&sku=TEST-3001&qty=1/.test(a.url)));
   check('Pololu: Quick add line, read back, and the price change is flagged', stores.state.pololu.cart.get('2136') === 2 && stores.state.adds().some(a => a.store === 'pololu' && a.body === '2136,2') && /Price changed: requested at \$14\.85, store shows \$15\.95/.test(await cardText(carts, 'pololu')), await cardText(carts, 'pololu'));
   check('McMaster: pasted one line, pressed ADD, read back', stores.state.mcmaster.cart.get('91251A537') === 2 && /1 added/.test(await cardText(carts, 'mcmaster')), await cardText(carts, 'mcmaster'));
+  const mcmAdds = stores.state.adds().filter(a => a.store === 'mcmaster').map(a => a.body);
+  check('McMaster: used the paste box, and typed nothing in the feedback box', JSON.stringify(mcmAdds) === JSON.stringify(['91251A537\t2']), mcmAdds);
+  const leftOutCard = await carts.textContent('[data-left-out]');
+  check('Results: a row left out of the build is listed, saying why', /Not in this build/.test(leftOutCard) && /WCP: Test compliant wheel, 4 in\., qty 2/.test(leftOutCard) && /SLOW requests start unticked/.test(leftOutCard) && /not in this build/.test(await carts.textContent('#results-counts')), leftOutCard);
   check('Checklist: a store with no method lists links and quantities', /Add these yourself/.test(await cardText(carts, 'checklist:bolt-barn')) && /qty 3/.test(await cardText(carts, 'checklist:bolt-barn')) && await carts.$eval('[data-result="checklist:bolt-barn"] li a', a => a.href === 'https://bolt-barn.example.test/p/test/100'));
   check('Checklist: an unknown store does too', /Test sheet from nowhere known, qty 1/.test(await cardText(carts, 'checklist:other-store')) && await carts.$eval('[data-result="checklist:other-store"] li a', a => a.href === 'https://not-a-store.example.test/thing'));
   check('Checklist: nothing went to those sites', !outsiders.some(url => /bolt-barn|not-a-store/.test(url)), outsiders);
@@ -616,6 +620,7 @@ try {
   await carts.waitForSelector('#orders-view:not([hidden])');
   await build(carts);
   check('Unexpected page: stops, and leaves a link', /a page this didn't expect/.test(await cardText(carts, 'pololu')) && /1 to add yourself/.test(await cardText(carts, 'pololu')) && stores.state.adds().length === 0, await cardText(carts, 'pololu'));
+  check('Unexpected page: says what it saw, on the store\'s card', /What it saw: \S/.test(await cardText(carts, 'pololu')), await cardText(carts, 'pololu'));
   check('Unexpected page: no mark', api.marks.length === 0);
   await carts.close();
 

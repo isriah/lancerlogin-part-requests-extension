@@ -1,6 +1,6 @@
 // Amazon's add link, /gp/aws/cart/add.html, then its confirm button when it shows one, then a read of /gp/cart/view.html. A signed-out browser gets a
-// sign-in page, which stops the store. It has never run signed in, so the signed-in pages here come from public descriptions: anything that doesn't
-// match exactly stops the store with nothing pressed. docs/CARTS.md says what the owner has to check.
+// sign-in page, which stops the store. The cart page's rows and subtotal were seen signed in. The add link and confirm page weren't, so those come from
+// public descriptions: anything that doesn't match exactly stops the store with nothing pressed. docs/CARTS.md says what the owner has to check.
 import { isOnStore } from '../safety';
 import { LineProblem, StoreStop, stopIf, type CartLine, type PageStop, type StoreMethod, type StoreSteps, type StoreTab } from '../store-method';
 import type { CartOrder } from '../types';
@@ -64,7 +64,7 @@ export function amazonReadCart(keys: string[]): { lines: CartLine[]; total: numb
     else lines.set(key, { key, quantity, unitPrice });
   }
   // The count leaves out unticked lines, so it can be lower than the rows. Only higher means rows are missing.
-  const said = /\(\s*([\d,]+)\s+items?\s*\)/i.exec(document.querySelector('#sc-subtotal-label-activecart')?.textContent ?? '')?.[1];
+  const said = /\(\s*([\d,]+)\s+items?\s*\)/i.exec((document.querySelector('#sc-subtotal-label-buybox') ?? document.querySelector('#sc-subtotal-label-activecart'))?.textContent ?? '')?.[1];
   if (said === undefined || Number(said.replaceAll(',', '')) > total) return { kind: 'stop', reason: 'unexpected', detail: 'a cart page that may not show every line' };
   return { lines: [...lines.values()], total };
 }

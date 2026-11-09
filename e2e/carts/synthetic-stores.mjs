@@ -1,6 +1,6 @@
 // Small synthetic copies of six stores, routed at their real addresses so no request leaves the computer. Each keeps a cart and a log.
-// What the pages look like comes from the research and from live checks of REV, Pololu and WCP. McMaster's is a guess at a page nobody could see
-// signed in, so passing here says nothing about the real one.
+// What the pages look like comes from the research and from live checks of REV, Pololu and WCP. McMaster's copies the shapes seen in the owner's signed-in
+// browser, including the feedback box that comes first in the document, but passing here still says nothing about the real page.
 const page = (title, body, script = '') => `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body>${body}${script ? `<script>${script}</script>` : ''}</body></html>`;
 const LOGIN = page('Log in', '<h1>Log in</h1><p>To continue browsing, please log in</p><input type="email"><input type="password"><button>Log in</button>');
 const CHALLENGE = page('Just a moment...', '<h1>Checking your browser</h1><div id="challenge-stage" style="width:300px;height:80px">Verify you are human</div>');
@@ -133,22 +133,27 @@ export function createStores() {
     if (s.mode === 'unexpected') return html(route, page('Scheduled maintenance', '<h1>Down for maintenance</h1>'));
     return wall(route, s.mode) ?? html(route, polCart(s));
   }
-  const mcmCart = s => page('Current Order | McMaster-Carr', `<a id="paste" href="#">Paste part numbers and quantities</a>
-    <div id="box" hidden><section><textarea></textarea><button id="add" type="button">ADD</button></section></div>
+  const mcmLine = ([part, q], index) => `<div><input id="line-part-number-input-${index + 1}" class="line-part-number-input" value="${part}"><input id="line-quantity-input-${index + 1}" class="line-quantity-input" value="${q}"></div>`;
+  const mcmNewLine = n => `<div><input id="new-line-part-number-input-${n}" class="new-line-part-number-input"><input id="new-line-quantity-input-${n}" class="new-line-quantity-input"></div>`;
+  const mcmCart = s => page('Current Order | McMaster-Carr', `<textarea id="message-input" placeholder="Let us know what you need."></textarea>
+    <button id="paste" class="switch-mode-link" type="button">Paste part numbers and quantities</button>
+    <div id="box" hidden><textarea id="bulk-lines-textarea" placeholder="3313N116  2"></textarea></div>
+    <div id="add-holder" hidden><button id="add" class="button-primary button-add-bulk-lines" type="button">Add</button></div>
     <button id="checkout" type="button">Place Order</button>
-    <table id="lines">${[...s.cart].map(([part, q]) => `<tr><td>${part}</td><td><input value="${q}"></td></tr>`).join('')}</table>`, `
-    document.getElementById('paste').addEventListener('click', e => { e.preventDefault(); document.getElementById('box').hidden = false; });
+    <div id="lines">${[...s.cart].map(mcmLine).join('')}${mcmNewLine([...s.cart].length + 1)}</div>`, `
+    document.getElementById('paste').addEventListener('click', () => { document.getElementById('box').hidden = false; document.getElementById('add-holder').hidden = false; document.getElementById('paste').hidden = true; });
+    document.getElementById('message-input').addEventListener('input', () => fetch('/synthetic-feedback', { method: 'POST', body: document.getElementById('message-input').value }));
     document.getElementById('checkout').addEventListener('click', () => { location.href = '/checkout'; });
     document.getElementById('add').addEventListener('click', async () => {
-      const value = document.querySelector('textarea').value;
+      const value = document.getElementById('bulk-lines-textarea').value;
       const answer = await (await fetch('/synthetic-add', { method: 'POST', body: value })).json();
-      const lines = document.getElementById('lines'); lines.replaceChildren();
-      for (const [part, q] of answer) { const row = lines.insertRow(); row.insertCell().textContent = part; const input = document.createElement('input'); input.value = q; row.insertCell().append(input); }
-      document.getElementById('box').hidden = true;
+      document.getElementById('lines').innerHTML = answer.map(([part, q], index) => '<div><input id="line-part-number-input-' + (index + 1) + '" class="line-part-number-input" value="' + part + '"><input id="line-quantity-input-' + (index + 1) + '" class="line-quantity-input" value="' + q + '"></div>').join('') + '<div><input id="new-line-part-number-input-' + (answer.length + 1) + '" class="new-line-part-number-input"><input id="new-line-quantity-input-' + (answer.length + 1) + '" class="new-line-quantity-input"></div>';
+      document.getElementById('bulk-lines-textarea').value = '';
     });`);
   async function mcmaster(route) {
     const request = route.request(), url = new URL(request.url()), s = state.mcmaster;
     if (/checkout/i.test(url.pathname)) return checkout(route, 'mcmaster');
+    if (url.pathname === '/synthetic-feedback') { note('mcmaster', request, { add: true, body: `feedback: ${request.postData() ?? ''}` }); return route.fulfill({ status: 204 }); }
     if (url.pathname === '/synthetic-add') {
       const line = request.postData() ?? '';
       note('mcmaster', request, { add: true, body: line });

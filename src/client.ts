@@ -105,7 +105,7 @@ export function interpretOrders(reply: Reply): OrdersOutcome {
   if (status === 200 && parsed && Array.isArray(body.orders)) {
     return {
       kind: 'orders', orders: body.orders.flatMap(orderFrom), fetchedMs: Number.isFinite(body.fetchedMs) ? body.fetchedMs : null, stale: body.stale === true, refreshing: body.refreshing === true,
-      refreshError: string(body.refreshError, 200), truncated: body.truncated === true, skippedRows: Number.isFinite(body.skippedRows) && body.skippedRows > 0 ? body.skippedRows : 0,
+      refreshError: string(body.refreshError, 200), truncated: body.truncated === true, skippedRows: (Number.isFinite(body.skippedRows) && body.skippedRows > 0 ? body.skippedRows : 0) + body.orders.filter((row: Json) => !orderFrom(row).length).length,
     };
   }
   if (status === 202) return { kind: 'refreshing', retryAfterSeconds: waitFor(reply, 2) };

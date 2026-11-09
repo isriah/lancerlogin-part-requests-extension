@@ -150,13 +150,17 @@ export async function bambuAddOnPage(id: string, key: string, quantity: number, 
     if (/just a moment/i.test(document.title)) return { kind: 'stop', reason: 'bot-check', detail: 'a CAPTCHA or bot check', notSent: true };
     if ([...document.querySelectorAll('input[type="password"]')].some(shown)) return { kind: 'stop', reason: 'login', detail: 'a sign-in page', notSent: true };
     if (buttons().some(node => shown(node) && /notify me when available/i.test(clean(node)))) return notSent('BambuLab shows Notify Me When Available for this option, so it can\'t be added now.');
-    const adds = buttons().filter(node => shown(node) && /^add to cart$/i.test(clean(node)));
+    const adds = buttons().filter(node => shown(node) && /^add to cart$/i.test(clean(node)) && node.getAttribute('data-action') !== 'buy-now');
     // Bundles further down the page have their own quantity boxes. The main one sits beside its own decrease button.
-    const boxes = ([...document.querySelectorAll('input[name="quantity"]')] as HTMLInputElement[]).filter(node => shown(node) && node.parentElement?.querySelector('[data-action="decrease-quantity"]'));
+    const mains = ([...document.querySelectorAll('input[name="quantity"]')] as HTMLInputElement[]).filter(node => node.parentElement?.querySelector('[data-action="decrease-quantity"]'));
+    const boxes = mains.filter(shown);
     if (adds.length > 1 || boxes.length > 1) return { kind: 'stop', reason: 'unexpected', detail: 'a product page with several Add to Cart controls', notSent: true };
-    const ready = adds.length === 1 && boxes.length === 1 && (!many || summary().length > 0);
-    if (ready) { add = adds[0]; box = boxes[0]; break; }
-    if (late()) return notSent('The product page didn\'t offer Add to Cart for this option.');
+    // In a window under about 1000px wide, Add to Cart is on a bottom bar and every main box is hidden, with more than one of them. Only the one in the button's own form is its box.
+    const addForm = adds[0]?.form;
+    const hidden = !boxes.length && addForm ? mains.filter(node => node.form === addForm) : [];
+    const main = boxes.length ? boxes[0] : hidden.length === 1 ? hidden[0] : undefined;
+    if (adds.length === 1 && main && (!many || summary().length > 0)) { add = adds[0]; box = main; break; }
+    if (late()) return notSent(!adds.length ? 'The product page didn\'t offer Add to Cart for this option.' : !main ? 'The product page shows Add to Cart without one clear quantity box for it, so nothing was added.' : 'The product page doesn\'t show which option is selected, so nothing was added.');
     await wait(250);
   }
   if (add.disabled || add.closest('a')) return notSent('The product page\'s Add to Cart isn\'t available for this option.');
@@ -165,7 +169,7 @@ export async function bambuAddOnPage(id: string, key: string, quantity: number, 
   let shownCount = Number(box.value);
   for (;;) {
     if (shownCount !== quantity) {
-      // The way a person types and tabs away. Real focus events may not fire in every tab state, so the page also gets the focusout it listens for.
+      // The way a person types and tabs away. Real focus events may not fire in every tab state, or on a hidden box, so the page also gets the focusout it listens for.
       box.focus();
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(box, String(quantity));
       box.dispatchEvent(new Event('input', { bubbles: true }));

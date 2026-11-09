@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { inspectPage } from '../../src/carts/page-check';
 import { allStoreOrigins, STORES } from '../../src/carts/registry';
 import { LineProblem } from '../../src/carts/store-method';
-import { mcmasterPart, mcmasterPasteLine, mcmasterReadCart } from '../../src/carts/stores/mcmaster';
+import { mcmasterPart } from '../../src/carts/stores/mcmaster';
 import { pololuNumber, pololuReadCart, pololuSubmitQuickAdd, pololu } from '../../src/carts/stores/pololu';
 import { addLink, revAddMessage, revReadCart, rev } from '../../src/carts/stores/rev';
 import { chooseVariant, shopifyAddLine, shopifyLink, shopifyReadCart, shopifyReadProduct } from '../../src/carts/stores/shopify';
@@ -132,48 +132,12 @@ describe('Pololu', () => {
   });
 });
 describe('McMaster', () => {
-  const page = (rows = '') => `<a id="paste" href="#">Paste part numbers and quantities</a><div id="box" hidden><section><textarea></textarea><button id="add">ADD</button></section></div><button id="co">Check Out</button><table>${rows}</table>`;
-  const row = (part: string, q: number) => `<tr><td>${part}</td><td><input value="${q}"></td></tr>`;
   it('reads the part from the SKU or the link', () => {
     expect(mcmasterPart({ sku: '91251a537', productUrl: null })).toBe('91251A537');
     expect(mcmasterPart({ sku: 'screws', productUrl: 'https://www.mcmaster.com/91251A537/' })).toBe('91251A537');
     expect(mcmasterPart({ sku: null, productUrl: 'https://www.mcmaster.com/products/screws/' })).toBeNull();
   });
-  it('reads only the lines asked for, and says nothing about a part not on the page', async () => {
-    document.body.innerHTML = page(row('91251A537', 2) + row('98689A112', 9));
-    expect(await mcmasterReadCart(['91251A537', '1A1'])).toEqual([{ key: '91251A537', quantity: 2 }]);
-  });
-  it('stops on a page without the paste control, and a line it can\'t read', async () => {
-    document.body.innerHTML = '<h1>Something else</h1>';
-    expect(await mcmasterReadCart(['1A1'], 0)).toMatchObject({ kind: 'stop', reason: 'unexpected' });
-    document.body.innerHTML = page('<tr><td>1A1</td><td>no box</td></tr>');
-    expect(await mcmasterReadCart(['1A1'])).toMatchObject({ kind: 'stop', reason: 'unexpected' });
-  });
-  it('a sign-in that draws itself after loading is a login wall', async () => {
-    document.body.innerHTML = '<h1>Loading</h1>';
-    setTimeout(() => { document.body.innerHTML = '<p>To continue browsing, please log in</p>'; }, 300);
-    expect(await mcmasterReadCart(['1A1'], 3000)).toMatchObject({ kind: 'stop', reason: 'login' });
-  });
-  it('waits for an order page that draws itself after loading', async () => {
-    document.body.innerHTML = '<h1>Loading</h1>';
-    setTimeout(() => { document.body.innerHTML = page(row('1A1', 3)); }, 300);
-    expect(await mcmasterReadCart(['1A1'], 3000)).toEqual([{ key: '1A1', quantity: 3 }]);
-  });
-  it('pastes one line and presses ADD, never checkout', async () => {
-    showAll();
-    document.body.innerHTML = page();
-    const checkout = vi.fn(), added: string[] = [];
-    document.getElementById('co')!.addEventListener('click', checkout);
-    document.getElementById('add')!.addEventListener('click', () => added.push((document.querySelector('textarea') as HTMLTextAreaElement).value));
-    expect(await mcmasterPasteLine('91251A537', 2)).toEqual({ kind: 'sent' });
-    expect(added).toEqual(['91251A537\t2']);
-    expect(checkout).not.toHaveBeenCalled();
-  });
-  it('stops when the paste box has no ADD of its own', async () => {
-    showAll();
-    document.body.innerHTML = '<a href="#">Paste part numbers and quantities</a><section><textarea></textarea><button>Check Out</button></section>';
-    expect(await mcmasterPasteLine('1A1', 2)).toMatchObject({ kind: 'stop', reason: 'unexpected' });
-  });
+  // Its order page is in real-run.test.ts, in the shapes seen in a signed-in browser.
 });
 describe('walls', () => {
   it('an ordinary page passes, even with an invisible reCAPTCHA badge', () => {

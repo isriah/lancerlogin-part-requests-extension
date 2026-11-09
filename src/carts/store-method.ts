@@ -72,7 +72,7 @@ export type StopReason = 'login' | 'bot-check' | 'unexpected';
 /** Stops this store. Its remaining items become checklist links. No attempt is made to get past whatever caused it. */
 export class StoreStop extends Error {
   /** @param notSent certain that this stop came before anything reached the store, so nothing needs checking in the cart */
-  constructor(public reason: StopReason, detail = '', public notSent = false) { super(detail || reason); }
+  constructor(public reason: StopReason, public detail = '', public notSent = false) { super(detail || reason); }
 }
 /** This order can't be added. The store carries on with the next one. */
 export class LineProblem extends Error {}

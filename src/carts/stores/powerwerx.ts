@@ -1,6 +1,6 @@
 // PowerWerx's Quick Entry page: paste "SKU, quantity", Match Items, then the matched grid's add button, then the review window's add button. Written from
-// the page's own script. Cloudflare answers the match request with a challenge in a fresh browser, so this has never added anything: it stops there.
-// It needs checking in the owner's own browser. The same page holds a Checkout submit, and /cart has an empty-cart address. This touches neither.
+// the page's own script, and an add has landed this way in the owner's own browser. Cloudflare answers the match request with a challenge in a fresh browser,
+// so it stops there in one. The same page holds a Checkout submit, and /cart has an empty-cart address. This touches neither.
 import { LineProblem, stopIf, type CartLine, type PageStop, type StoreMethod } from '../store-method';
 import type { CartOrder } from '../types';
 
@@ -25,11 +25,14 @@ export function powerwerxReadCart(keys: string[]): CartLine[] | PageStop {
   if (count > 0 && !rows.length) return { kind: 'stop', reason: 'unexpected', detail: 'a cart with items and no lines to read' };
   const lines = new Map<string, CartLine>();
   for (const row of rows) {
-    const key = (row.querySelector('.apt-cell-sku')?.textContent ?? '').trim();
+    // Written "SKU: PowerpoleBag" on the real cart row. The match is still exact, and case counts.
+    const key = ((row.querySelector('.apt-row-sku') ?? row.querySelector('.apt-cell-sku'))?.textContent ?? '').trim().replace(/^SKU\s*:\s*/i, '').trim();
     if (!key) return { kind: 'stop', reason: 'unexpected', detail: 'a cart line with no SKU' };
     if (!keys.includes(key)) continue;
-    const quantity = Number((row.querySelector('[data-qty-input]') as HTMLInputElement | null)?.value ?? row.getAttribute('data-qty') ?? NaN);
+    const said = (row.querySelector('[data-qty-input]') as HTMLInputElement | null)?.value ?? row.getAttribute('data-qty') ?? '';
+    const quantity = said.trim() ? Number(said) : NaN;
     if (!Number.isFinite(quantity)) return { kind: 'stop', reason: 'unexpected', detail: 'a cart line with no quantity' };
+    // The real row's price cell wasn't seen, so a missing one means no price, and the read still stands.
     const price = Number(/\$\s*([\d,]+(?:\.\d+)?)/.exec(row.querySelector('[data-unit-price]')?.textContent ?? '')?.[1]?.replace(/,/g, ''));
     const line = lines.get(key);
     if (line) line.quantity += quantity; else lines.set(key, { key, quantity, unitPrice: Number.isFinite(price) && price > 0 ? price : null });

@@ -55,6 +55,17 @@ export function isTicked(row: OrderRow, ticks: ReadonlyMap<string, boolean>): bo
 export function untickAll(groups: StoreGroup[], ticks: Map<string, boolean>): void {
   for (const group of groups) for (const row of group.rows) if (!row.blocked) ticks.set(row.order.id, false);
 }
+export interface LeftOutRow { order: CartOrder; store: StoreMethod; why: string }
+/** Each row a build won't include, and in plain words why not. Nothing about a row is left to be guessed from its absence. */
+export function leftOutOf(groups: StoreGroup[], ticks: ReadonlyMap<string, boolean>): LeftOutRow[] {
+  const whyNot = (row: OrderRow): string => {
+    if (row.blocked) return row.blocked;
+    if (ticks.get(row.order.id) === false) return 'It was unticked.';
+    if (row.order.cartMarks?.length) return 'It\'s already in someone\'s cart, so it started unticked.';
+    return `${row.order.statusGroup} requests start unticked.`;
+  };
+  return groups.flatMap(group => group.rows.filter(row => !isTicked(row, ticks)).map(row => ({ order: row.order, store: row.store, why: whyNot(row) })));
+}
 export interface SelectionSummary { ticked: number; total: number; stores: number; estimate: number; withoutPrice: number }
 export function summarize(groups: StoreGroup[], ticks: ReadonlyMap<string, boolean>): SelectionSummary {
   let ticked = 0, total = 0, stores = 0, estimate = 0, withoutPrice = 0;

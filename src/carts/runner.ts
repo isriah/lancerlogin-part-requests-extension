@@ -33,13 +33,16 @@ export interface StoreResult {
   badge: StoreBadge;
   cartUrl: string | null;
   items: ItemResult[];
-  stopped?: { reason: StopReason; message: string };
+  /** `detail` is the fixed words for what the page was, shown as "What it saw". It never holds anything read from a cart. */
+  stopped?: { reason: StopReason; message: string; detail?: string };
   /** No access was granted, so nothing was tried. */
   noAccess?: boolean;
   /** The store's own note for the results. */
   resultNote?: string;
   /** Lines were sent, but the final read of the cart couldn't run, so the results are from before the cart page settled. */
   finalCheckNote?: string;
+  /** What the final read saw, in the same fixed words, when that read is what stopped. */
+  finalCheckDetail?: string;
 }
 export interface BuildOptions {
   /** Waits between lines. Tests pass their own. */
@@ -51,11 +54,16 @@ export interface BuildOptions {
   onFinalCheck?(): void;
 }
 const money = (value: number): string => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
-export const stopMessage = (label: string, reason: StopReason): string => ({
+/** `sent`: a line had gone to the store and its read-back is what stopped, so it may be in the cart, and the person mustn't be told to add it. */
+export const stopMessage = (label: string, reason: StopReason, sent = false): string => (sent ? {
+  login: `${label} asked for a sign-in after a line was sent, so this stopped there. Sign in on the store's site and check the cart before adding anything yourself.`,
+  'bot-check': `${label} showed a CAPTCHA or bot check after a line was sent, so this stopped there and did not try to get past it. Check the cart on the store's site before adding anything yourself.`,
+  unexpected: `${label} showed a page this didn't expect after a line was sent, so this stopped there. Check the cart before adding anything yourself.`,
+} : {
   login: `${label} asked for a sign-in, so this stopped there. Sign in on the store's site, then build again, or add these yourself.`,
   'bot-check': `${label} showed a CAPTCHA or bot check, so this stopped there and did not try to get past it. Add these yourself on the store's site.`,
   unexpected: `${label} showed a page this didn't expect, so this stopped there. Add these yourself on the store's site.`,
-}[reason]);
+})[reason];
 const lineIn = (lines: CartLine[], key: string): CartLine | undefined => lines.find(line => line.key === key);
 /** The smallest whole multiple at or above the quantity. */
 export const roundUpTo = (quantity: number, soldIn: number): number => soldIn > 1 ? Math.ceil(quantity / soldIn) * soldIn : quantity;
@@ -95,6 +103,7 @@ async function recheckLines(store: StoreMethod, read: (keys: string[]) => Promis
     settled = await read([...lines.keys()]);
   } catch (error) {
     result.finalCheckNote = finalCheckNote(store.label, error instanceof StoreStop ? error.reason : undefined);
+    if (error instanceof StoreStop && error.detail) result.finalCheckDetail = error.detail;
     return;
   }
   for (const [key, line] of lines) {
@@ -216,9 +225,10 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
       }
     } catch (error) {
       if (!(error instanceof StoreStop)) throw error;
-      result.stopped = { reason: error.reason, message: stopMessage(store.label, error.reason) };
+      const mayHaveLanded = sent && !error.notSent;
+      result.stopped = { reason: error.reason, message: stopMessage(store.label, error.reason, mayHaveLanded), ...(error.detail ? { detail: error.detail } : {}) };
       // An add may have landed with no way to read it back. A retry reads first so it's safe, but the person should look.
-      if (sent && !error.notSent) { anySent = true; put(index, 'flagged', 'This was sent to the store, but the cart could not be read back. Check the cart before adding it yourself.'); }
+      if (mayHaveLanded) { anySent = true; put(index, 'flagged', 'This was sent to the store, but the cart could not be read back. Check the cart before adding it yourself.'); }
       break;
     }
   }

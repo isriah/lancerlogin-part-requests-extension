@@ -1,7 +1,7 @@
 // Online Metals runs on SAP Hybris. The product page lists each standard length as a radio whose data-variantcode is the SKU, such as 1230_12_0. A line
 // picks that radio, sets the quantity and presses the page's own Add To Cart, and the read-back is /en/cart. Custom cuts need a person: they are refused.
-// UNPROVEN: a fresh browser gets Cloudflare's 403 at /en/cart, which stops the store like any other wall, so no add or cart page has been seen. The owner's
-// browser has to check it, as docs/CARTS.md says for McMaster. readCart's row shape is the Hybris pattern, not something seen here, and it fails closed.
+// A fresh browser gets Cloudflare's 403 at /en/cart, which stops the store like any other wall. In the owner's signed-in Chrome the cart page and an add by
+// hand were seen, and readCart's row shape is what was seen there. docs/CARTS.md says what's still unproven through this code.
 import { LineProblem, StoreStop, stopIf, type CartLine, type PageStop, type StoreMethod } from '../store-method';
 import type { CartOrder } from '../types';
 
@@ -67,13 +67,21 @@ export function onlineMetalsReadCart(keys: string[]): CartLine[] | PageStop {
   const rows = [...document.querySelectorAll('form[action*="/cart/update"]')].filter(form => form.querySelector('input[name="productCode"]'));
   if (!rows.length) {
     const text = document.body?.innerText ?? document.body?.textContent ?? '';
-    return /cart is (currently )?empty|no items in (your )?(shopping )?cart/i.test(text) ? [] : { kind: 'stop', reason: 'unexpected', detail: 'a cart page in a shape this does not know' };
+    return /cart is (currently )?empty|no items in (your )?(shopping )?cart|you have 0 items/i.test(text) ? [] : { kind: 'stop', reason: 'unexpected', detail: 'a cart page in a shape this does not know' };
   }
   const lines = new Map<string, CartLine>();
   for (const row of rows) {
     const key = (row.querySelector('input[name="productCode"]') as HTMLInputElement).value.trim();
     if (!keys.includes(key)) continue;
-    const box = row.querySelector('input[name="quantity"]') as HTMLInputElement | null;
+    // Normally inside the form. Otherwise tied to it by a form attribute, or the one box standing with this form and no other, never a box in another form.
+    const boxes = [...document.querySelectorAll('input[name="quantity"]')] as HTMLInputElement[];
+    let box = (row.querySelector('input[name="quantity"]') as HTMLInputElement | null) ?? boxes.find(node => row.id && node.getAttribute('form') === row.id) ?? null;
+    for (let around = row.parentElement; !box && around; around = around.parentElement) {
+      if (around.querySelectorAll('form[action*="/cart/update"]').length > 1) break;
+      const near = boxes.filter(node => around!.contains(node) && !node.closest('form') && !node.getAttribute('form'));
+      if (near.length > 1) break;
+      if (near.length) box = near[0];
+    }
     const quantity = box && box.value.trim() ? Number(box.value) : NaN;
     if (!Number.isFinite(quantity)) return { kind: 'stop', reason: 'unexpected', detail: 'a cart line with no quantity' };
     const line = lines.get(key);

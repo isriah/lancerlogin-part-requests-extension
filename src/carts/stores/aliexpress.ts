@@ -86,7 +86,7 @@ export async function aliexpressReadListing(item: string, waitMs = 15_000): Prom
   }));
   // Option controls that this couldn't read must not pass for a listing with no options.
   if (rows.some(row => !row.length) || (!rows.length && document.querySelector('[data-sku-col],[class*="sku-item"],[class*="sku-property"]'))) return { kind: 'not-offered', message: 'This listing\'s options couldn\'t be read, so nothing was added.' };
-  const price = [...document.querySelectorAll('[class*="price--current"],[class*="product-price-current"]')].filter(shown).map(node => words(node.textContent)).find(Boolean) ?? '';
+  const price = [...document.querySelectorAll('[class*="price-default--current"],[class*="price--current"],[class*="product-price-current"]')].filter(shown).map(node => words(node.textContent)).find(text => text && !/^ends\s*:/i.test(text)) ?? '';
   return { kind: 'ok', rows, price };
 }
 
@@ -209,7 +209,7 @@ export async function aliexpressPressAdd(item: string, wanted: string[], quantit
     if (on.length !== 1 || !(wanted.includes(nameOf(on[0])) || row.length === 1)) return refused('The listing didn\'t keep the requested option selected, so nothing was added.');
   }
   for (const name of wanted) if (!rows().flat().some(node => nameOf(node) === name && isSelected(node))) return refused(`The listing didn't keep "${name}" selected, so nothing was added.`);
-  const price = [...document.querySelectorAll('[class*="price--current"],[class*="product-price-current"]')].filter(shown).map(node => words(node.textContent)).find(Boolean) ?? '';
+  const price = [...document.querySelectorAll('[class*="price-default--current"],[class*="price--current"],[class*="product-price-current"]')].filter(shown).map(node => words(node.textContent)).find(text => text && !/^ends\s*:/i.test(text)) ?? '';
   if (!/^(?:US\s*)?\$\s*\d/.test(price)) return refused('Ali Express isn\'t showing this price in US dollars, so nothing was added.');
   const boxes = ([...document.querySelectorAll('input[class*="input-number-input"]')] as HTMLInputElement[]).filter(shown);
   if (boxes.length !== 1) return refused('The page doesn\'t show one clear quantity box for this listing, so nothing was added.');
