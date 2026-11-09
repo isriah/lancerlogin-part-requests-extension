@@ -350,20 +350,22 @@ const resultGroup = (title: string, items: HTMLElement[]): HTMLElement => h('div
 function resultItem(result: ItemResult): HTMLElement {
   const marks: Record<string, [string, string]> = { added: ['✓', 'success'], flagged: ['!', 'warning'], failed: ['✕', 'error'], checklist: ['☐', ''] };
   const [mark, tone] = marks[result.outcome];
-  const changed = result.storeChanged;
-  const title = h('span', {}, `${result.order.description ?? 'No description'}, ${changed ? `you asked for ${changed.asked}, the cart holds ${changed.holds}` : `qty ${result.order.quantity ?? '?'}`}`);
+  const changed = result.storeChanged, rounded = result.rounded;
+  const title = h('span', {}, `${result.order.description ?? 'No description'}, ${changed ? `you asked for ${changed.asked}, the cart holds ${changed.holds}` : rounded ? `you asked for ${rounded.asked}${rounded.orders > 1 ? ` across ${rounded.orders} orders` : ''}, the cart holds ${rounded.holds}` : `qty ${result.order.quantity ?? '?'}`}`);
   if ((result.outcome === 'failed' || result.outcome === 'checklist') && result.order.productUrl) title.append(' ', link(result.order.productUrl, 'Open product ↗'));
+  if (rounded) title.append(h('small', {}, rounded.note));
   if (result.message) title.append(h('small', {}, result.message));
   return h('li', { }, h('span', { className: 'x-mark', tone, ariaHidden: 'true' }, mark), title);
 }
 function storeCard(result: StoreResult): HTMLElement {
   const of = (outcome: string) => result.items.filter(item => item.outcome === outcome);
   const [added, flagged, failed, checklist] = ['added', 'flagged', 'failed', 'checklist'].map(of);
-  const changed = flagged.filter(item => item.storeChanged);
+  const changed = flagged.filter(item => item.storeChanged), rounded = flagged.filter(item => item.rounded);
   const counts = h('div', { className: 'x-actions x-result-counts' });
   if (added.length) counts.append(pill(`✓ ${added.length} added`, 'success'));
   if (flagged.length) counts.append(pill(`! ${flagged.length} flagged`, 'warning'));
   if (changed.length) counts.append(pill(`! ${changed.length} changed by the store`, 'warning'));
+  if (rounded.length) counts.append(pill(`! ${rounded.length} rounded up`, 'warning'));
   if (failed.length) counts.append(pill(`✕ ${failed.length} failed`, 'error'));
   if (checklist.length) counts.append(pill(`${checklist.length} to add yourself`));
   const card = h('section', { className: 'ui-card' }, h('div', { className: 'x-card-head' }, h('h2', {}, result.label), badge(result.badge, result.noAccess ? 'No store access, so this is a list for you to add yourself' : '')), counts);
@@ -372,14 +374,18 @@ function storeCard(result: StoreResult): HTMLElement {
   if (result.noAccess) card.append(h('p', { className: 'x-help x-result-stop' }, 'This extension has no access to this store, so nothing was tried.'));
   if (result.finalCheckNote) card.append(h('p', { className: 'x-tone x-result-stop', tone: 'warning' }, result.finalCheckNote));
   if (result.resultNote && (added.length || flagged.length)) card.append(h('p', { className: 'x-help x-result-stop' }, result.resultNote));
-  if (changed.length) {
-    const group = resultGroup('The store changed the quantity, check before ordering', changed.map(resultItem));
-    group.classList.add('x-tone', 'x-result-changed');
+  const standOut = (title: string, items: ItemResult[], extra = ''): void => {
+    if (!items.length) return;
+    const group = resultGroup(title, items.map(resultItem));
+    group.classList.add('x-tone', 'x-result-changed', ...(extra ? [extra] : []));
     group.dataset.tone = 'warning';
     card.append(group);
-  }
+  };
+  standOut('The store changed the quantity, check before ordering', changed);
+  standOut('Rounded up to what the store sells, check before ordering', rounded, 'x-result-rounded');
   if (added.length) card.append(resultGroup('Added', added.map(resultItem)));
-  if (flagged.length > changed.length) card.append(resultGroup('Flagged, check in the cart', flagged.filter(item => !item.storeChanged).map(resultItem)));
+  const plain = flagged.filter(item => !item.storeChanged && !item.rounded);
+  if (plain.length) card.append(resultGroup('Flagged, check in the cart', plain.map(resultItem)));
   if (failed.length) card.append(resultGroup('Failed, not in the cart', failed.map(resultItem)));
   if (checklist.length) card.append(resultGroup('Add these yourself', checklist.map(resultItem)));
   if (result.cartUrl) {
@@ -399,7 +405,8 @@ function renderResults(): void {
   const today = new Date(builtAt).toDateString() === new Date().toDateString();
   el('results-when').textContent = `Built ${today ? 'today' : shortDate(builtAt)} at ${clockTime(builtAt)}`;
   const changed = results.reduce((sum, result) => sum + result.items.filter(item => item.storeChanged).length, 0);
-  el('results-counts').textContent = `${count('added')} added, ${count('flagged')} flagged, ${count('failed')} failed, ${count('checklist')} to add yourself${changed ? `. ${changed} changed by the store: check before ordering` : ''}`;
+  const rounded = results.reduce((sum, result) => sum + result.items.filter(item => item.rounded).length, 0);
+  el('results-counts').textContent = `${count('added')} added, ${count('flagged')} flagged, ${count('failed')} failed, ${count('checklist')} to add yourself${changed ? `. ${changed} changed by the store: check before ordering` : ''}${rounded ? `. ${rounded} rounded up to what the store sells: check before ordering` : ''}`;
   el('results').replaceChildren(...results.map(storeCard));
 }
 el('back').addEventListener('click', () => { void load(); });

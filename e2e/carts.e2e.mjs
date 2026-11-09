@@ -43,6 +43,7 @@ const api = {
 const order = (id, extra) => ({ id, url: `${NOTION}-${id}`, description: `Test item ${id}`, vendor: null, urlVendor: null, sku: null, productUrl: null, quantity: 1, unitPrice: 10, status: 'NORMAL Request', statusGroup: 'NORMAL', teams: ['Test Team One'], requesters: ['Test Student A'], cartMarks: [], ...extra });
 const wcpOrder = (id, extra) => order(id, { vendor: 'WCP', urlVendor: 'WCP', productUrl: 'https://wcproducts.com/products/test-hex-shaft?variant=1001', sku: 'WCP-1001', quantity: 4, unitPrice: 6.3, description: 'Test hex shaft, 4 in.', ...extra });
 const revOrder = (id, extra) => order(id, { vendor: 'REV', urlVendor: 'REV', productUrl: 'https://www.revrobotics.com/test-motor/', sku: 'TEST-3001', quantity: 1, unitPrice: 30, description: 'Test brushless motor', ...extra });
+const amOrder = (id, extra) => order(id, { vendor: 'AndyMark', urlVendor: 'AndyMark', productUrl: 'https://andymark.com/products/test-screw', sku: 'AM-TEST-25', quantity: 1, unitPrice: 0.05, description: 'Test small screw', ...extra });
 const polOrder = (id, extra) => order(id, { vendor: 'Pololu', urlVendor: 'Pololu', productUrl: 'https://www.pololu.com/product/2136', quantity: 2, unitPrice: 15.95, description: 'Test motor driver', ...extra });
 const mcmOrder = (id, extra) => order(id, { vendor: 'McMaster', urlVendor: 'McMaster', productUrl: 'https://www.mcmaster.com/91251A537/', quantity: 2, unitPrice: 21.4, description: 'Test socket head screws, pack of 50', ...extra });
 const fullList = () => [
@@ -106,7 +107,7 @@ const stores = createStores();
 try {
   await context.route(`${SITE}/**`, plugin);
   await stores.install(context);
-  const allowedHosts = /^(https:\/\/team-site\.example\.test|https:\/\/wcproducts\.com|https:\/\/www\.revrobotics\.com|https:\/\/www\.pololu\.com|https:\/\/www\.mcmaster\.com|https:\/\/www\.homedepot\.com|https:\/\/www\.aliexpress\.us|chrome-extension:|data:|about:|chrome:|edge:)/;
+  const allowedHosts = /^(https:\/\/team-site\.example\.test|https:\/\/wcproducts\.com|https:\/\/andymark\.com|https:\/\/www\.revrobotics\.com|https:\/\/www\.pololu\.com|https:\/\/www\.mcmaster\.com|https:\/\/www\.homedepot\.com|https:\/\/www\.aliexpress\.us|chrome-extension:|data:|about:|chrome:|edge:)/;
   // Anything else would really leave the computer, so it never gets that far.
   await context.route('**/*', route => {
     const url = route.request().url();
@@ -420,6 +421,62 @@ try {
   await build(carts);
   check('Store raised it: a second build says plainly the cart holds more, and adds nothing', /The cart already holds 25, more than the 1 you asked for\. Nothing was added/.test(await cardText(carts, 'wcp')) && stores.state.adds().length === 1 && stores.state.wcp.cart.get(1001) === 25, await cardText(carts, 'wcp'));
   await carts.close();
+
+  // AndyMark sells some items only in multiples, and its own cart page would round them down. A build adds the multiple at or above the request, and says so.
+  const amAdds = () => stores.state.adds().filter(a => a.store === 'andymark');
+  const amMoved = () => stores.state.log.filter(a => a.store === 'andymark' && a.pageUpdate && a.moved);
+  fresh();
+  api.orders = [amOrder('a1')];
+  carts = await openCarts();
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  await build(carts);
+  await shot(carts, 'results-rounded');
+  const roundedCard = await cardText(carts, 'andymark');
+  check('Rounded up: 1 at multiples of 25 sends 25, and the cart holds it', amAdds().length === 1 && amAdds()[0].body.items[0].quantity === 25 && stores.state.andymark.cart.get(7001) === 25, amAdds());
+  check('Rounded up: flagged in plain words, naming both numbers', /AndyMark sells this in multiples of 25, so the cart holds 25, not the 1 requested\./.test(roundedCard) && /you asked for 1, the cart holds 25/.test(roundedCard), roundedCard);
+  check('Rounded up: stands out in the card and the summary', await carts.isVisible('[data-result="andymark"] .x-result-rounded') && /1 rounded up/.test(roundedCard) && /1 rounded up to what the store sells: check before ordering/.test(await carts.textContent('#results-counts')), await carts.textContent('#results-counts'));
+  check('Rounded up: doesn\'t read as a failure or a mismatch', !/1 failed|Failed, not in the cart|mismatch|changed by the store|more than/.test(roundedCard) && /0 failed/.test(await carts.textContent('#results-counts')), roundedCard);
+  check('Rounded up: the store\'s own cart page ran and moved nothing', stores.state.log.some(a => a.store === 'andymark' && a.pageUpdate) && amMoved().length === 0 && !(await carts.isVisible('[data-result="andymark"] .x-result-changed:not(.x-result-rounded)')), stores.state.log.filter(a => a.pageUpdate));
+  check('Rounded up: marked, at the quantity the order asked for', api.marks.length === 1 && api.marks[0].orderId === 'a1' && api.marks[0].quantity === 1, api.marks);
+  await carts.setViewportSize({ width: 375, height: 800 });
+  check('Rounded up: no sideways scroll at phone width', await carts.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), await carts.evaluate(() => document.documentElement.scrollWidth));
+  await carts.setViewportSize({ width: 1366, height: 860 });
+  await carts.click('#back');
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  await build(carts);
+  const roundedRetry = await cardText(carts, 'andymark');
+  check('Rounded up: a second build adds nothing, and stays flagged as rounded', amAdds().length === 1 && stores.state.andymark.cart.get(7001) === 25 && /Already in the cart: it holds 25, so nothing was added/.test(roundedRetry) && /not the 1 requested/.test(roundedRetry) && !/more than/.test(roundedRetry), roundedRetry);
+  check('Rounded up: a second build marks it too', api.marks.length === 2 && api.marks[1].quantity === 1, api.marks);
+  await carts.close();
+
+  fresh();
+  api.orders = [amOrder('a1', { quantity: 30 })];
+  carts = await openCarts();
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  await build(carts);
+  check('Rounded up: 30 at multiples of 25 holds 50, where the page alone would leave 25', amAdds()[0]?.body.items[0].quantity === 50 && stores.state.andymark.cart.get(7001) === 50 && amMoved().length === 0 && /so the cart holds 50, not the 30 requested/.test(await cardText(carts, 'andymark')), await cardText(carts, 'andymark'));
+  await carts.close();
+
+  fresh();
+  api.orders = [amOrder('a1', { quantity: 25 }), amOrder('a2', { description: 'Test normal screw', sku: 'AM-TEST-1', quantity: 3, unitPrice: 0.4 })];
+  carts = await openCarts();
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  await build(carts);
+  const amPlain = await cardText(carts, 'andymark');
+  check('Multiples: an exact multiple and an item sold in 1s add normally, with no flag', amAdds().map(a => a.body.items[0].quantity).join() === '25,3' && /2 added/.test(amPlain) && !/flagged|rounded up|multiples of/.test(amPlain) && !(await carts.isVisible('[data-result="andymark"] .x-result-rounded')), amPlain);
+  await carts.close();
+
+  fresh();
+  api.orders = [amOrder('a1'), amOrder('a2', { description: 'Test small screw, again' })];
+  carts = await openCarts();
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  await build(carts);
+  const amShared = await cardText(carts, 'andymark');
+  check('Two orders of 1: one add of 25, and the second is covered by it', amAdds().length === 1 && stores.state.andymark.cart.get(7001) === 25, amAdds());
+  check('Two orders of 1: both flagged, saying they share it', /2 rounded up/.test(amShared) && /The 2 orders for this part total 2, so the cart holds 25 for them together/.test(amShared) && /you asked for 2 across 2 orders, the cart holds 25/.test(amShared), amShared);
+  check('Two orders of 1: both marked at their own quantity', api.marks.map(mark => `${mark.orderId}:${mark.quantity}`).join() === 'a1:1,a2:1', api.marks);
+  await carts.close();
+  check('Rounded up: no checkout request', stores.state.checkoutHits.length === 0, stores.state.checkoutHits);
 
   // A wall at the final read is not a failed build.
   fresh();

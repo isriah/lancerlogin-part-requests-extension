@@ -23,7 +23,7 @@ export async function andymarkReadProduct(handle: string): Promise<ProductAnswer
 
 /**
  * Injected. The whole-number quantity this variant is sold in, from the data AndyMark's product page carries for its own theme. That theme rounds
- * each cart line to it when the cart page loads. Reads the page without leaving the tab where it is. Null when it can't be read, which isn't a refusal.
+ * each cart line to it when the cart page loads. Reads the page without leaving the tab where it is. Null when it can't be read, and then nothing is rounded.
  * The value is picked out by hand because the theme's own data can hold raw line breaks that JSON.parse rejects.
  */
 export async function andymarkOrderedIn(handle: string, variant: string): Promise<{ kind: 'ok'; orderedIn: number | null } | PageStop> {
@@ -43,8 +43,6 @@ export async function andymarkOrderedIn(handle: string, variant: string): Promis
   }
   return unread;
 }
-/** The theme's own rule: rounds down to a whole multiple, and never below one of them. */
-export const andymarkRounds = (quantity: number, orderedIn: number): number => Math.max(Math.floor(quantity / orderedIn) * orderedIn, orderedIn);
 
 const sameSku = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -82,12 +80,11 @@ export const andymark: StoreMethod = {
       if (product.kind === 'not-found') throw new LineProblem('The store no longer has this product page.');
       if (product.handle.toLowerCase() !== link.handle.toLowerCase()) throw new LineProblem('The store answered with a different product than the saved link.');
       const chosen = chooseAndyMarkVariant(product.variants, link.variant, order.sku);
-      if (chosen.available) {
-        const { orderedIn } = stopIf(await tab.run(andymarkOrderedIn, link.handle, chosen.id));
-        const quantity = order.quantity!;
-        if (orderedIn && quantity % orderedIn !== 0) throw new LineProblem(`AndyMark sells this in multiples of ${orderedIn}, so it would change ${quantity} to ${andymarkRounds(quantity, orderedIn)}. Fix the quantity in Notion, or add it by hand.`);
-      }
-      return { key: chosen.id, addAs: chosen.id, available: chosen.available };
+      const target: LineTarget = { key: chosen.id, addAs: chosen.id, available: chosen.available };
+      if (!chosen.available) return target;
+      // The theme rounds a line down to a multiple when the cart page loads, which would leave the team short. So the runner adds the multiple at or above the request.
+      const { orderedIn } = stopIf(await tab.run(andymarkOrderedIn, link.handle, chosen.id));
+      return orderedIn && orderedIn > 1 ? { ...target, soldIn: orderedIn } : target;
     },
   },
   missing(order: CartOrder) { return [...(order.sku?.trim() ? [] : ['a SKU']), ...base.missing!(order)]; },

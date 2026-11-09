@@ -22,6 +22,8 @@ export interface LineTarget {
   available?: boolean;
   /** Something the person should check, which doesn't stop the add. */
   note?: string;
+  /** The whole multiple the store sells this line in, when it's above 1. The runner rounds up to it, and flags that in the results. */
+  soldIn?: number;
 }
 export interface StoreTab {
   /** Goes to an address in this store and waits for it to load. Refuses checkout and anything off the store. Checks for walls after. */

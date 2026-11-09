@@ -14,9 +14,10 @@ export function createStores() {
     mcmaster: { cart: new Map(), mode: 'ok' },
     homedepot: { cart: new Map(), mode: 'ok', otherPresses: 0 },
     aliexpress: { cart: new Map(), mode: 'ok', otherPresses: 0 },
+    andymark: { cart: new Map(), mode: 'ok' },
     reset() {
       this.log.length = 0; this.checkoutHits.length = 0; this.addTimes.length = 0;
-      for (const store of [this.wcp, this.rev, this.pololu, this.mcmaster, this.homedepot, this.aliexpress]) { store.cart.clear(); store.mode = 'ok'; store.stock?.clear(); }
+      for (const store of [this.wcp, this.rev, this.pololu, this.mcmaster, this.homedepot, this.aliexpress, this.andymark]) { store.cart.clear(); store.mode = 'ok'; store.stock?.clear(); }
     },
     adds() { return this.log.filter(entry => entry.add); },
   };
@@ -29,6 +30,34 @@ export function createStores() {
   const json = (route, value, status = 200) => route.fulfill({ status, contentType: 'text/javascript; charset=utf-8', body: JSON.stringify(value) });
   const wall = (route, mode) => mode === 'login' ? html(route, LOGIN) : mode === 'challenge' ? html(route, CHALLENGE) : null;
   const checkout = (route, store) => { state.checkoutHits.push(`${store} ${route.request().url()}`); return html(route, page('Checkout', '<h1>Checkout</h1>')); };
+
+  // AndyMark's product data and cart page, as live checks saw them: each variant's "ordered in" value sits in the product page, and the cart page's own
+  // script sends every line through max(floor(quantity / n) * n, n) when it loads. This one's values are synthetic.
+  const AM_SOLD_IN = { 7001: 25, 7002: 1 };
+  async function andymark(route) {
+    const request = route.request(), url = new URL(request.url()), s = state.andymark;
+    if (/checkout/i.test(url.pathname) || /^\/cart\/\d+:\d+/.test(url.pathname)) return checkout(route, 'andymark');
+    if (url.pathname === '/cart/add.js' && request.method() === 'POST') {
+      const body = request.postDataJSON();
+      note('andymark', request, { add: true, body });
+      const [{ id, quantity }] = body.items;
+      s.cart.set(id, (s.cart.get(id) ?? 0) + quantity);
+      return json(route, { items: [{ id, quantity }] });
+    }
+    if (url.pathname === '/cart/update.js' && request.method() === 'POST') {
+      const { updates } = request.postDataJSON();
+      const moved = [...s.cart.keys()].some((id, index) => s.cart.get(id) !== updates[index]);
+      note('andymark', request, { pageUpdate: true, moved });
+      [...s.cart.keys()].forEach((id, index) => s.cart.set(id, updates[index]));
+      return json(route, { items: [] });
+    }
+    note('andymark', request);
+    if (url.pathname === '/cart.js') return json(route, { items: [...s.cart].map(([variant_id, quantity]) => ({ variant_id, quantity, price: 5, title: 'A synthetic line' })) });
+    if (url.pathname === '/products/test-screw.js') return json(route, { handle: 'test-screw', variants: [{ id: 7001, sku: 'AM-TEST-25', price: 5, available: true }, { id: 7002, sku: 'AM-TEST-1', price: 40, available: true }] });
+    if (url.pathname === '/products/test-screw') return html(route, page('A test screw', `<h1>A test screw</h1><script id="variant_metafield_data" type="application/json">{ ${Object.entries(AM_SOLD_IN).map(([id, n]) => `"${id}" : { "availabilityText": "", "orderedInQuantity": "${n}", "maxPerOrder": "0" }`).join(' , ')} }</script>`));
+    if (url.pathname === '/cart') return html(route, page('Your cart', '<h1>Your cart</h1>', `fetch('/cart.js').then(reply => reply.json()).then(({ items }) => { if (items.length) fetch('/cart/update.js', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates: items.map(item => { const n = ${JSON.stringify(AM_SOLD_IN)}[item.variant_id]; return Math.max(Math.floor(item.quantity / n) * n, n); }) }) }); });`));
+    return route.fulfill({ status: 404, contentType: 'text/html', body: 'Not found' });
+  }
 
   async function wcp(route) {
     const request = route.request(), url = new URL(request.url()), s = state.wcp;
@@ -189,6 +218,7 @@ export function createStores() {
     state,
     async install(context) {
       await context.route('https://wcproducts.com/**', wcp);
+      await context.route('https://andymark.com/**', andymark);
       await context.route('https://www.revrobotics.com/**', rev);
       await context.route('https://www.pololu.com/**', pololu);
       await context.route('https://www.mcmaster.com/**', mcmaster);

@@ -15,6 +15,17 @@ export interface ItemResult {
   confirmed: boolean;
   /** The store changed this line after the build read it. For the results only: nothing here ever goes back to the store. */
   storeChanged?: { asked: number; holds: number };
+  /** The cart deliberately holds more than was requested, because the store sells this in multiples. */
+  rounded?: RoundedLine;
+}
+export interface RoundedLine {
+  soldIn: number;
+  /** The requested quantity this covers: this order's own, or all of them when several orders share the line. */
+  asked: number;
+  orders: number;
+  holds: number;
+  /** The plain words for the results. */
+  note: string;
 }
 export interface StoreResult {
   storeId: string;
@@ -46,6 +57,11 @@ export const stopMessage = (label: string, reason: StopReason): string => ({
   unexpected: `${label} showed a page this didn't expect, so this stopped there. Add these yourself on the store's site.`,
 }[reason]);
 const lineIn = (lines: CartLine[], key: string): CartLine | undefined => lines.find(line => line.key === key);
+/** The smallest whole multiple at or above the quantity. */
+export const roundUpTo = (quantity: number, soldIn: number): number => soldIn > 1 ? Math.ceil(quantity / soldIn) * soldIn : quantity;
+const soldInWords = (label: string, soldIn: number): string => `${label} sells this in multiples of ${soldIn}`;
+const roundedOne = (label: string, soldIn: number, requested: number, holds: number): RoundedLine => ({ soldIn, asked: requested, orders: 1, holds, note: `${soldInWords(label, soldIn)}, so the cart holds ${holds}, not the ${requested} requested.` });
+const roundedShared = (label: string, soldIn: number, asked: number, orders: number, holds: number): RoundedLine => ({ soldIn, asked, orders, holds, note: `${soldInWords(label, soldIn)}. The ${orders} orders for this part total ${asked}, so the cart holds ${holds} for them together.` });
 const finalCheckNote = (label: string, reason?: StopReason): string => {
   const why = reason ? `, because ${label} ${{ login: 'asked for a sign-in', 'bot-check': 'showed a CAPTCHA or bot check', unexpected: 'showed a page this didn\'t expect' }[reason]}` : '';
   return `The final check of this cart couldn't run${why}. These results are from before the store's cart page settled, so check the cart before ordering.`;
@@ -56,6 +72,10 @@ interface HandledLine {
   seen: number;
   /** All this build's orders for the line, added up. */
   asked: number;
+  /** The multiple the store sells this line in. 1 when it has none, or it couldn't be read. */
+  soldIn: number;
+  /** An order for this line wasn't a whole multiple by itself. */
+  rounded: boolean;
   /** A read-back saw the line go up. */
   landed: boolean;
   items: number[];
@@ -80,7 +100,8 @@ async function recheckLines(store: StoreMethod, read: (keys: string[]) => Promis
   for (const [key, line] of lines) {
     const holds = lineIn(settled, key)?.quantity ?? 0;
     if (holds === line.seen) continue;
-    const asked = `you asked for ${line.asked}${line.items.length > 1 ? ` across ${line.items.length} orders` : ''}`;
+    const expected = roundUpTo(line.asked, line.soldIn);
+    const asked = `you asked for ${line.asked}${line.items.length > 1 ? ` across ${line.items.length} orders` : ''}${expected !== line.asked ? `, rounded up to ${expected} because ${soldInWords(store.label, line.soldIn)}` : ''}`;
     const changed = `The ${line.landed ? `store changed this to ${holds} after it was added` : `cart changed to ${holds} during this build`}; ${asked}. Check the cart before ordering.`;
     for (const index of line.items) {
       const item = result.items[index];
@@ -115,7 +136,7 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
     try { return await steps.readCart(tab, keys); }
     finally { reading = false; }
   };
-  const put = (index: number, outcome: ItemOutcome, message: string, confirmed = false) => { result.items[index] = { order: orders[index], outcome, message, confirmed }; };
+  const put = (index: number, outcome: ItemOutcome, message: string, confirmed = false, rounded?: RoundedLine) => { result.items[index] = { order: orders[index], outcome, message, confirmed, ...(rounded ? { rounded } : {}) }; };
   for (let index = 0; index < orders.length; index++) {
     const order = orders[index];
     options.onProgress?.(index, orders.length);
@@ -135,21 +156,29 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
       }
       if (target.available === false) { put(index, 'failed', 'The store shows this as out of stock.'); continue; }
       const before = lineIn(await read([target.key]), target.key)?.quantity ?? 0;
-      const handled = lines.get(target.key) ?? { seen: before, asked: 0, landed: false, items: [], sent: new Set<number>(), over: [] };
+      const handled = lines.get(target.key) ?? { seen: before, asked: 0, soldIn: 1, rounded: false, landed: false, items: [], sent: new Set<number>(), over: [] };
       lines.set(target.key, handled);
       handled.seen = before;
       handled.asked += requested;
       handled.items.push(index);
+      handled.soldIn = target.soldIn ?? handled.soldIn;
+      const { soldIn } = handled;
       const had = accounted.get(target.key) ?? 0;
-      const want = had + requested;
+      const total = had + requested;
+      // The orders so far, added up and then rounded, so a second order is covered by what the first one's rounding already put there.
+      const want = roundUpTo(total, soldIn);
       const need = want - before;
+      const isRounded = requested % soldIn !== 0 || want !== total;
+      if (isRounded) handled.rounded = true;
+      const rounded = isRounded ? roundedOne(store.label, soldIn, requested, want) : undefined;
+      const roundedTo = want !== total ? `, rounded up to ${want} because ${soldInWords(store.label, soldIn)}` : '';
       if (need <= 0) {
         // Adds accumulate, so this is what keeps a second click from doubling anything.
-        accounted.set(target.key, want);
-        if (before === want) put(index, 'flagged', `Already in the cart: it holds ${before}, so nothing was added.`, true);
+        accounted.set(target.key, total);
+        if (before === want) put(index, 'flagged', `Already in the cart: it holds ${before}, so nothing was added.`, true, rounded);
         else {
           handled.over.push(index);
-          put(index, 'flagged', `The cart already holds ${before}, more than the ${want} you asked for. Nothing was added, and the quantity wasn't changed. Check the cart before ordering.`);
+          put(index, 'flagged', `The cart already holds ${before}, more than ${want === total ? `the ${want} you asked for` : `this needs: ${total} requested${roundedTo}`}. Nothing was added, and the quantity wasn't changed. Check the cart before ordering.`);
         }
         continue;
       }
@@ -169,21 +198,21 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
       handled.seen = after;
       if (after > before) handled.landed = true;
       if (after === want) {
-        accounted.set(target.key, want);
+        accounted.set(target.key, total);
         const notes: string[] = [];
-        if (before > had) notes.push(`Already in the cart: it held ${before}, so ${need} more ${need === 1 ? 'was' : 'were'} added to reach ${want}.`);
+        if (before > roundUpTo(had, soldIn)) notes.push(`Already in the cart: it held ${before}, so ${need} more ${need === 1 ? 'was' : 'were'} added to reach ${want}.`);
         if (target.note) notes.push(target.note);
         if (order.unitPrice !== null && typeof line?.unitPrice === 'number' && Math.abs(line.unitPrice - order.unitPrice) >= 0.005) notes.push(`Price changed: requested at ${money(order.unitPrice)}, store shows ${money(line.unitPrice)}.`);
-        put(index, notes.length ? 'flagged' : 'added', notes.join(' '), true);
+        put(index, notes.length || rounded ? 'flagged' : 'added', notes.join(' '), true, rounded);
       } else if (after === before) {
         accounted.set(target.key, before);
         put(index, 'failed', refusal || 'The store did not add this. The cart is unchanged.');
       } else if (after > before && after < want) {
         accounted.set(target.key, after);
-        put(index, 'flagged', `Short stock: asked for ${requested}, and the cart holds ${after}. The store capped it.${refusal ? ` ${refusal}` : ''}`);
+        put(index, 'flagged', `Short stock: asked for ${requested}${roundedTo}, and the cart holds ${after}. The store capped it.${refusal ? ` ${refusal}` : ''}`);
       } else {
         accounted.set(target.key, after);
-        put(index, 'flagged', `Quantity mismatch: the cart should hold ${want}, but it holds ${after} (it held ${before}). Check the cart.`);
+        put(index, 'flagged', `Quantity mismatch: the cart should hold ${want}, but it holds ${after} (it held ${before}).${isRounded ? ` ${soldInWords(store.label, soldIn)}.` : ''} Check the cart.`);
       }
     } catch (error) {
       if (!(error instanceof StoreStop)) throw error;
@@ -195,7 +224,16 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
   }
   options.onProgress?.(orders.length, orders.length);
   // On a retry of two orders for one part, the first sees the whole line and looks over. If all of them together account for it, it wasn't.
-  for (const line of lines.values()) if (line.seen === line.asked) for (const index of line.over) put(index, 'flagged', `Already in the cart: it holds ${line.seen}, so nothing was added.`, true);
+  for (const line of lines.values()) if (line.seen === roundUpTo(line.asked, line.soldIn)) for (const index of line.over) put(index, 'flagged', `Already in the cart: it holds ${line.seen}, so nothing was added.`, true);
+  // Orders that share a rounded line get one account of it, because the first one's own words can be out of date by the time the last one is done.
+  for (const line of lines.values()) {
+    if (!line.rounded) continue;
+    const sharing = line.items.filter(index => result.items[index].confirmed);
+    const asked = sharing.reduce((sum, index) => sum + orders[index].quantity!, 0);
+    if (sharing.length < 2 || line.seen !== roundUpTo(asked, line.soldIn)) continue;
+    const rounded = roundedShared(store.label, line.soldIn, asked, sharing.length, line.seen);
+    for (const index of sharing) result.items[index] = { ...result.items[index], outcome: 'flagged', rounded };
+  }
   if (result.stopped) {
     // A wall ends this store's pages for good, so the final read isn't tried.
     if (anySent) result.finalCheckNote = finalCheckNote(store.label, result.stopped.reason);
@@ -205,5 +243,5 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
   }
   return result;
 }
-/** Marks only what the final read left confirmed. Nothing else about the cart goes to the plugin: an order's ID and its quantity. */
+/** Marks only what the final read left confirmed, a rounded line included, always at the order's own quantity. Nothing else about the cart goes to the plugin: an order's ID and its quantity. */
 export const marksFor = (result: StoreResult): MarkInput[] => result.items.filter(item => item.confirmed && item.order.quantity !== null).map(item => ({ orderId: item.order.id, quantity: item.order.quantity! }));
