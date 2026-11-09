@@ -30,14 +30,14 @@ A store's file can't get around these.
 
 ### What a read-back means
 
-The target is what this run needs the cart to hold: the requested quantity, plus any earlier order in this run for the same line. Only the difference is added.
+The target is what this run needs the cart to hold: the requested quantity, plus any earlier order in this run for the same line. Only the difference is added. On a retry of two orders for one line, the first can look above its target until the second is reached, so it's marked after all if the orders together account for the cart.
 
 | Cart before, cart after | Result | Mark? |
 |---|---|---|
 | Reached the target, and the cart was empty | Added | Yes |
 | Reached the target, and the cart already held some | Flagged: already in the cart | Yes |
 | Already at the target, nothing sent | Flagged: already in the cart | Yes |
-| Already above the target, nothing sent | Flagged: the cart holds more than requested | Yes |
+| Already above the target, nothing sent | Flagged: the cart holds more than requested. A mark means the cart holds what was asked for, so this has none | No |
 | Reached the target at a new price | Flagged: price changed | Yes |
 | Went up, but short of the target | Flagged: short stock | No |
 | Unchanged | Failed, with the store's own message when it gave one | No |
@@ -141,7 +141,7 @@ Short stock, a store's refusal, walls other than those named above and the check
 - **Ali Express's cart rows** are matched on both the listing and the option, because one listing can hold several options in a cart. A row of the listing that names none of its known options could be this line written differently, so it stops the store instead of reading as zero.
 - **Ali Express ticks a newly added item for checkout by itself.** Nothing here touches those ticks, and the results say so.
 - **Ali Express is USD only.** A price that isn't `$` or `US $` fails the line, checked before reading the cart and again once the option is selected. Builds always use the `.us` listing, whichever site the link was saved from.
-- **AndyMark's cart page can raise a quantity on its own.** Seen on `am-1775`, a $0.05 screw: `/cart/add.js` accepted quantity 1 and `/cart.js` read 1. About a second after `/cart` next loaded, the page's own script sent `/cart/update.js` with `{"updates":[25]}`, and the cart held 25. This code never asks for that. The final read now catches it in the same build: the line is flagged, naming 25 and 1, with no mark. The extension doesn't change it back, because that's for the person to decide in the cart. A later build adds nothing and says the cart already holds more than was asked for. Whether to warn before adding is the owner's call.
+- **AndyMark's cart page can raise a quantity on its own.** Seen on `am-1775`, a $0.05 screw: `/cart/add.js` accepted quantity 1 and `/cart.js` read 1. About a second after `/cart` next loaded, the page's own script sent `/cart/update.js` with `{"updates":[25]}`, and the cart held 25. This code never asks for that. The final read now catches it in the same build: the line is flagged, naming 25 and 1, with no mark. The extension doesn't change it back, because that's for the person to decide in the cart. A later build adds nothing, says the cart already holds more than was asked for, and doesn't mark it either. Whether to warn before adding is the owner's call.
   - **The cause** is AndyMark's theme. `roundAndApplyAutomaticCodes` in `empire.min.js` runs when the cart page loads and sends every line through `max(floor(quantity / n) * n, n)`, where `n` is that variant's `orderedInQuantity`, read from `#variant_metafield_data` on the page. So 1 becomes 25, and 30 would go down to 25. It then posts `/cart/update.js` once for the quantities and once for discount codes.
   - **It depends on the item's own setting**, not its price or the cart's total: neither is in that code. `am-1775` at $0.05 went to 25 ($1.25), and `am-1552_black` at $0.08 went to 100 ($8.00), in the same cart.
   - **How often:** 181 of 1,970 products carry the tag `Ordered In Quantity Higher Than One`: 91 of 125 under $0.25, 86 of 219 from $0.25 to $1, 4 of 447 from $1 to $5, and none of 1,179 at $5 or more. The tag misses some, because `am-1775` doesn't have it. In a read-only sample of 40 product pages, 36 showed a value. The 9 above 1 were all under $1 (10 or 25), and the 21 at $1 or more all showed 1. It's mostly small hardware, which is a large share of what a team orders. The rest of the catalog isn't checked.
@@ -187,5 +187,4 @@ Use one cheap item, and remove it afterwards. Any mismatch below should stop the
    - **Walls:** does a robot check or sign-in stop the store? How often does one appear? Does a saved `.com` link or `sku_id` cause any trouble?
    - Remove the item afterwards with the row's trash icon and "Remove". That's by hand: nothing here removes anything.
 9. **Real sign-ins:** a signed-in account at the stores that passed signed out, to see that a saved cart reads back the same way.
-10. **AndyMark's raised quantity:** build a small screw, then open the AndyMark cart. Does it show 25, and does the site say why? The extension flags this in the results and doesn't change it back, so the quantity is the person's to fix in the cart before ordering. Decide whether the extension should also warn before adding such an item. Also decide whether a later build, which finds more in the cart than requested and adds nothing, should still mark the line. It does today, as the table above says.
-11. **Chrome itself:** these ran in Edge. Chrome 137 and newer ignores `--load-extension`, so automation can't load it there. Load `dist` by hand and repeat one store.
+10. **AndyMark's raised quantity:** build a small screw, then open the AndyMark cart. Does it show 25, and does the site say why? The extension flags this in the results and doesn't change it back, so the quantity is the person's to fix in the cart before ordering. Decide whether the extension should also warn before adding such an item.11. **Chrome itself:** these ran in Edge. Chrome 137 and newer ignores `--load-extension`, so automation can't load it there. Load `dist` by hand and repeat one store.

@@ -61,6 +61,8 @@ interface HandledLine {
   items: number[];
   /** The items whose own add was sent. */
   sent: Set<number>;
+  /** The items whose pre-read found more than this run's total so far. A later order for the line can still account for it. */
+  over: number[];
 }
 /** The final read: lets the store's cart page run, reads the lines this build handled, and flags any that moved. It only ever reads. */
 async function recheckLines(store: StoreMethod, read: (keys: string[]) => Promise<CartLine[]>, readLoadsCart: () => boolean, lines: Map<string, HandledLine>, result: StoreResult, tab: StoreTab, options: BuildOptions): Promise<void> {
@@ -133,7 +135,7 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
       }
       if (target.available === false) { put(index, 'failed', 'The store shows this as out of stock.'); continue; }
       const before = lineIn(await read([target.key]), target.key)?.quantity ?? 0;
-      const handled = lines.get(target.key) ?? { seen: before, asked: 0, landed: false, items: [], sent: new Set<number>() };
+      const handled = lines.get(target.key) ?? { seen: before, asked: 0, landed: false, items: [], sent: new Set<number>(), over: [] };
       lines.set(target.key, handled);
       handled.seen = before;
       handled.asked += requested;
@@ -145,7 +147,10 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
         // Adds accumulate, so this is what keeps a second click from doubling anything.
         accounted.set(target.key, want);
         if (before === want) put(index, 'flagged', `Already in the cart: it holds ${before}, so nothing was added.`, true);
-        else put(index, 'flagged', `The cart already holds ${before}, more than the ${want} you asked for. Nothing was added, and the quantity wasn't changed. Check the cart before ordering.`, true);
+        else {
+          handled.over.push(index);
+          put(index, 'flagged', `The cart already holds ${before}, more than the ${want} you asked for. Nothing was added, and the quantity wasn't changed. Check the cart before ordering.`);
+        }
         continue;
       }
       let refusal = '';
@@ -189,6 +194,8 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
     }
   }
   options.onProgress?.(orders.length, orders.length);
+  // On a retry of two orders for one part, the first sees the whole line and looks over. If all of them together account for it, it wasn't.
+  for (const line of lines.values()) if (line.seen === line.asked) for (const index of line.over) put(index, 'flagged', `Already in the cart: it holds ${line.seen}, so nothing was added.`, true);
   if (result.stopped) {
     // A wall ends this store's pages for good, so the final read isn't tried.
     if (anySent) result.finalCheckNote = finalCheckNote(store.label, result.stopped.reason);

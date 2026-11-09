@@ -28,12 +28,26 @@ describe('building one store', () => {
     expect(result.items[0]).toMatchObject({ outcome: 'flagged', confirmed: true });
     expect(result.items[0].message).toMatch(/it held 2, so 3 more were added to reach 5/);
   });
-  it('adds nothing, and says so, when the cart holds more than requested', async () => {
+  it('adds nothing, says so, and marks nothing when the cart holds more than requested', async () => {
     const cart = new Map([['TEST-1', 9]]); const { store, steps, adds } = fakeStore(cart);
     const result = await buildStore(store, steps, [order({ quantity: 5 })], hereTab, options);
     expect(adds).toEqual([]);
-    expect(result.items[0].outcome).toBe('flagged');
+    expect(result.items[0]).toMatchObject({ outcome: 'flagged', confirmed: false });
     expect(result.items[0].message).toMatch(/already holds 9, more than the 5/);
+    expect(marksFor(result)).toEqual([]);
+  });
+  it('a retry of two orders for one line marks both, because together they account for the cart', async () => {
+    const cart = new Map([['TEST-1', 5]]); const { store, steps, adds } = fakeStore(cart);
+    const result = await buildStore(store, steps, [order({ id: 'a', quantity: 2 }), order({ id: 'b', quantity: 3 })], hereTab, options);
+    expect(adds).toEqual([]);
+    expect(result.items.map(item => item.message)).toEqual(['Already in the cart: it holds 5, so nothing was added.', 'Already in the cart: it holds 5, so nothing was added.']);
+    expect(marksFor(result).map(mark => mark.orderId)).toEqual(['a', 'b']);
+  });
+  it('two orders for one line that together are still under the cart mark neither', async () => {
+    const cart = new Map([['TEST-1', 9]]); const { store, steps } = fakeStore(cart);
+    const result = await buildStore(store, steps, [order({ id: 'a', quantity: 2 }), order({ id: 'b', quantity: 3 })], hereTab, options);
+    expect(result.items.map(item => item.confirmed)).toEqual([false, false]);
+    expect(marksFor(result)).toEqual([]);
   });
   it('two orders for one line add up, and a retry of both adds nothing', async () => {
     const cart = new Map<string, number>(); const { store, steps, adds } = fakeStore(cart);
