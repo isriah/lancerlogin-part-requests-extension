@@ -1,6 +1,7 @@
 // Home Depot is a checklist on purpose. There is no published add address or cart API, and a fresh browser gets a 403 from the cart page, so an add
 // could never be read back. It has no steps and no store access, and the person gets links and quantities. Home Depot's pages can ask for a store or a
-// delivery choice, which is the person's to make. docs/CARTS.md says what a signed-in browser would have to show before this can do more.
+// delivery choice, which is the person's to make. To do more, a signed-in browser would have to show a cart page that loads in the extension's tab with
+// each line's item number and quantity readable, and an add that takes a quantity and never picks a store or delivery option for the person.
 import { allowedInTab } from '../safety';
 import type { StoreMethod } from '../store-method';
 import type { CartOrder } from '../types';
