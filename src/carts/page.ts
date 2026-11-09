@@ -7,7 +7,8 @@ import { ChromeStoreTab } from './chrome-tab';
 import { allStoreOrigins, OTHER_STORE } from './registry';
 import { buildStore, checklistResult, marksFor, stopMessage, type ItemResult, type StoreResult } from './runner';
 import { CART_SETTLE_MS, paceMs } from './safety';
-import { groupOrders, isTicked, leftOutOf, summarize, untickAll, type LeftOutRow, type OrderRow, type StoreGroup } from './selection';
+import { cleanPacks, PACKS_KEY, packSizes, rememberPacks } from './packs';
+import { groupOrders, isTicked, leftOutOf, packNote, summarize, untickAll, type LeftOutRow, type OrderRow, type StoreGroup } from './selection';
 import { BADGE_LABEL, StoreStop, type StoreBadge, type StoreMethod } from './store-method';
 import type { CartMark, MarkInput, MarksOutcome, OrdersList, OrdersOutcome } from './types';
 
@@ -34,6 +35,8 @@ let loadGeneration = 0;
 let polls = 0;
 let waits = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
+/** Pack sizes earlier builds read, by product. Only a build reads them, in the store's tab: this page never asks a store. */
+let packs = new Map<string, number>();
 
 const money = (value: number): string => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 const sleep = (ms: number) => new Promise<void>(done => setTimeout(done, ms));
@@ -56,6 +59,19 @@ const shownBadge = (store: StoreMethod): StoreBadge => canAutomate(store) && !ha
 const shownHelp = (store: StoreMethod): string => canAutomate(store) && !hasAccess(store) ? 'No store access yet, so this is a list for you to add yourself' : store.badgeHelp;
 const badge = (kind: StoreBadge, help: string): HTMLElement => { const node = pill(BADGE_LABEL[kind], '', 'x-method'); node.title = help; return node; };
 
+/** Storage trouble only costs the estimate its pack sizes, so it never stops the page or a build. */
+async function readPacks(): Promise<void> {
+  try { packs = packSizes(cleanPacks((await chrome.storage.local.get(PACKS_KEY))[PACKS_KEY])); }
+  catch { /* The estimate uses the requested quantities. */ }
+}
+async function savePacks(store: StoreMethod, result: StoreResult): Promise<void> {
+  if (!store.packKey || !result.items.some(item => item.soldIn !== undefined)) return;
+  try {
+    const next = rememberPacks(cleanPacks((await chrome.storage.local.get(PACKS_KEY))[PACKS_KEY]), store, result, Date.now());
+    await chrome.storage.local.set({ [PACKS_KEY]: next });
+    packs = packSizes(next);
+  } catch { /* Next time's estimate uses the requested quantity. */ }
+}
 async function readAccess(): Promise<void> {
   for (const origin of allStoreOrigins()) access.set(origin, await chrome.permissions.contains({ origins: [origin] }));
 }
@@ -107,6 +123,9 @@ function rowNode(row: OrderRow): HTMLTableRowElement {
   }
   const marks = markNote(order.cartMarks);
   if (marks) item.append(marks);
+  const pack = packNote(row, packs);
+  if (pack?.kind === 'known') item.append(h('span', { className: 'x-row-note x-pack-note' }, h('b', {}, `Pack of ${pack.soldIn}`), h('span', {}, `Rounds to a pack of ${pack.soldIn} (from the last build), so the estimate counts whole packs.`)));
+  if (pack?.kind === 'unknown') item.append(h('span', { className: 'x-row-note x-pack-note' }, h('b', {}, 'Pack size?'), h('span', {}, `${row.store.label} may round this up to a pack size during the build. The estimate uses the requested quantity.`)));
   if (!row.blocked && order.statusGroup === 'SLOW') item.append(h('span', { className: 'x-row-note' }, h('b', {}, 'Waiting'), h('span', {}, 'SLOW requests stay unticked unless you tick them.')));
   if (!row.blocked && order.statusGroup === 'INCOMPLETE') item.append(h('span', { className: 'x-row-note' }, h('b', {}, 'Incomplete'), h('span', {}, 'Incomplete requests stay unticked unless you tick them.')));
   const statusName = order.statusGroup;
@@ -132,9 +151,9 @@ function groupNode(group: StoreGroup): HTMLTableSectionElement {
   return section;
 }
 function updateSelection(): void {
-  const summary = summarize(groups, ticks);
+  const summary = summarize(groups, ticks, packs);
   el('selection-count').textContent = building ? '' : `${summary.ticked} of ${summary.total} items selected from ${summary.stores} store${summary.stores === 1 ? '' : 's'}`;
-  if (!building) el('selection-total').textContent = `Estimated ${money(summary.estimate)} before shipping and tax${summary.withoutPrice ? `, with ${summary.withoutPrice} item${summary.withoutPrice === 1 ? '' : 's'} without a price` : ''}`;
+  if (!building) el('selection-total').textContent = `Estimated ${money(summary.estimate)} before shipping and tax${summary.withoutPrice ? `, with ${summary.withoutPrice} item${summary.withoutPrice === 1 ? '' : 's'} without a price` : ''}${summary.mayRound ? `. ${summary.mayRound} item${summary.mayRound === 1 ? '' : 's'} may round up to a pack size during the build` : ''}`;
   el<HTMLButtonElement>('build').disabled = building || !summary.ticked;
   el<HTMLButtonElement>('untick-all').disabled = building || !summary.ticked;
   el<HTMLButtonElement>('refresh').disabled = building;
@@ -344,6 +363,7 @@ async function build(): Promise<void> {
       await tab?.close();
     }
     results.push(result);
+    await savePacks(store, result);
     // After each store's final read, so a line the store changed is never marked, and before the next store, so a mark is never lost to a later store's trouble.
     const marks = marksFor(result);
     if (marks.length) markProblem = await sendMarks(marks) ?? markProblem;
@@ -453,6 +473,7 @@ chrome.permissions.onRemoved?.addListener(accessChanged);
 async function start(): Promise<void> {
   el('version').textContent = chrome.runtime.getManifest().version;
   await readAccess();
+  await readPacks();
   settings = await send<SettingsView>({ type: 'settings' });
   applyAppearance(settings);
   el('theme-toggle').setAttribute('aria-checked', String(settings.theme === 'light'));

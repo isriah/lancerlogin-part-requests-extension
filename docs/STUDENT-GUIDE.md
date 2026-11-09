@@ -62,6 +62,7 @@ The extension starts dark. Use the **Light mode** switch at the top of settings 
 |---|---|
 | Pair this device again | An Admin removed this device or you left the roster. Run `/ordering-pin` again and pair in settings. Your drafts are kept. |
 | That PIN does not work | Run `/ordering-pin` again and use the newest PIN. |
+| No answer from the site, or your PIN may already be used up | The site may have used up your PIN even though no answer came back. Run `/ordering-pin` again and enter the new PIN. Trying the old one again won't work. |
 | You chose Deny | Click **Pair this device** again and choose **Allow**. |
 | You already have 5 paired devices | Click **Unpair this device** on one you still have, or ask an Admin to remove one. |
 | Update available | Your extension is older than your team's site asks for. It keeps working. Follow the link, or ask your team for the new zip, when you have a moment. |

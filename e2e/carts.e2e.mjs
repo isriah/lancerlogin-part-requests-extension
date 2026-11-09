@@ -26,7 +26,7 @@ const check = (name, ok, detail = '') => { results.push({ name, ok }); console.l
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 const productionManifest = JSON.parse(readFileSync(join(root, 'dist', 'manifest.json'), 'utf8'));
-check('Manifest: version 0.7.3', productionManifest.version === '0.7.3');
+check('Manifest: version 1.0.0', productionManifest.version === '1.0.0');
 check('Manifest: no cookie, web-request or always-on host access', !/cookies|webRequest|declarativeNet/.test(JSON.stringify(productionManifest)) && !productionManifest.host_permissions);
 const extension = join(work, 'extension');
 cpSync(join(root, 'dist'), extension, { recursive: true });
@@ -481,6 +481,11 @@ try {
   api.orders = [amOrder('a1')];
   carts = await openCarts();
   await carts.waitForSelector('#orders-view:not([hidden])');
+  // Before any build has read the pack size, the screen says the build may round up, and estimates the requested quantity.
+  const amRow = () => carts.textContent('tr[data-order-row="a1"]');
+  const storeRequestsBefore = stores.state.log.length;
+  check('Estimate: an unread pack size says AndyMark may round up, and uses the requested quantity', /Pack size\?AndyMark may round this up to a pack size during the build\. The estimate uses the requested quantity\./.test(await amRow()) && /^Estimated \$0\.05 before shipping and tax\. 1 item may round up to a pack size during the build$/.test(await carts.textContent('#selection-total')), `${await amRow()} | ${await carts.textContent('#selection-total')}`);
+  check('Estimate: the Carts screen asks the store nothing before a build', stores.state.log.length === storeRequestsBefore, stores.state.log.slice(storeRequestsBefore));
   await build(carts);
   await shot(carts, 'results-rounded');
   const roundedCard = await cardText(carts, 'andymark');
@@ -495,6 +500,15 @@ try {
   await carts.setViewportSize({ width: 1366, height: 860 });
   await carts.click('#back');
   await carts.waitForSelector('#orders-view:not([hidden])');
+  // The build read the pack size, so the next estimate counts the whole pack, and says where that came from.
+  check('Estimate: after a build, the line rounds to the pack the build read', /Pack of 25Rounds to a pack of 25 \(from the last build\), so the estimate counts whole packs\./.test(await amRow()) && !/may round this up/.test(await amRow()), await amRow());
+  check('Estimate: counts the whole pack of 25', /^Estimated \$1\.25 before shipping and tax$/.test(await carts.textContent('#selection-total')), await carts.textContent('#selection-total'));
+  const packMemory = await carts.evaluate(() => chrome.storage.local.get('cartsPackSizes'));
+  check('Estimate: remembers only the product, SKU and pack size', JSON.stringify(Object.keys(packMemory.cartsPackSizes ?? {})) === '["andymark:test-screw|am-test-25"]' && packMemory.cartsPackSizes['andymark:test-screw|am-test-25'].soldIn === 25 && !/Test Student|a1|Test small screw/.test(JSON.stringify(packMemory)), packMemory);
+  await carts.setViewportSize({ width: 375, height: 800 });
+  check('Estimate: the pack note fits at phone width, with Unit price hidden', await carts.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1 && ![...document.querySelectorAll('.x-pack-note')].some(note => note.getBoundingClientRect().right > note.closest('td').getBoundingClientRect().right + .5) && !document.querySelector('tr[data-order-row="a1"] .x-td-price').getClientRects().length));
+  await shot(carts, 'orders-pack-phone');
+  await carts.setViewportSize({ width: 1366, height: 860 });
   await build(carts);
   const roundedRetry = await cardText(carts, 'andymark');
   check('Rounded up: a second build adds nothing, and stays flagged as rounded', amAdds().length === 1 && stores.state.andymark.cart.get(7001) === 25 && /Already in the cart: it holds 25, so nothing was added/.test(roundedRetry) && /not the 1 requested/.test(roundedRetry) && !/more than/.test(roundedRetry), roundedRetry);

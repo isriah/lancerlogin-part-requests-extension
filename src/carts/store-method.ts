@@ -22,7 +22,7 @@ export interface LineTarget {
   available?: boolean;
   /** Something the person should check, which doesn't stop the add. */
   note?: string;
-  /** The whole multiple the store sells this line in, when it's above 1. The runner rounds up to it, and flags that in the results. */
+  /** The whole multiple the store sells this line in, when it could be read: 1 when it sells singly. The runner rounds up to it, and flags that in the results. */
   soldIn?: number;
 }
 export interface StoreTab {
@@ -66,6 +66,11 @@ export interface StoreMethod {
   resultNote?: string;
   /** Absent means a checklist. */
   steps?: StoreSteps;
+  /**
+   * For a store that may sell an item in packs: the product, as the store names it, so the Carts screen can remember the pack size a build read.
+   * Only the link's product and the SKU, never anything about who asked. Null when the order doesn't name one.
+   */
+  packKey?(order: CartOrder): string | null;
 }
 
 export type StopReason = 'login' | 'bot-check' | 'unexpected';

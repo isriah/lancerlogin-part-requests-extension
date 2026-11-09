@@ -84,7 +84,7 @@ describe('grouping and fallback', () => {
   });
   it('sums what is ticked', () => {
     const groups = groupOrders([order({ id: '1', quantity: 2, unitPrice: 10 }), order({ id: '2', sku: 'B', statusGroup: 'SLOW', quantity: 1, unitPrice: 5 }), order({ id: '3', sku: 'C', quantity: 3, unitPrice: null })]);
-    expect(summarize(groups, none)).toEqual({ ticked: 2, total: 3, stores: 1, estimate: 20, withoutPrice: 1 });
+    expect(summarize(groups, none)).toEqual({ ticked: 2, total: 3, stores: 1, estimate: 20, withoutPrice: 1, packRounded: 0, mayRound: 0 });
   });
 });
 describe('the registry', () => {

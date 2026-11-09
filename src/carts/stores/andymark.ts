@@ -84,8 +84,12 @@ export const andymark: StoreMethod = {
       if (!chosen.available) return target;
       // The theme rounds a line down to a multiple when the cart page loads, which would leave the team short. So the runner adds the multiple at or above the request.
       const { orderedIn } = stopIf(await tab.run(andymarkOrderedIn, link.handle, chosen.id));
-      return orderedIn && orderedIn > 1 ? { ...target, soldIn: orderedIn } : target;
+      return orderedIn ? { ...target, soldIn: orderedIn } : target;
     },
+  },
+  packKey(order: CartOrder) {
+    const handle = shopifyLink(order.productUrl)?.handle.trim().toLowerCase(), sku = order.sku?.trim().toLowerCase();
+    return handle && sku ? `${handle}|${sku}` : null;
   },
   missing(order: CartOrder) { return [...(order.sku?.trim() ? [] : ['a SKU']), ...base.missing!(order)]; },
 };

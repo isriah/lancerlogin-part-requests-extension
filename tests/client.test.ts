@@ -32,6 +32,21 @@ describe('calling the device API',()=>{
     const bad=client(new Response('<html>not the plugin</html>',{status:200}));
     await expect(new PluginClient(SITE,undefined,bad.fetch as unknown as typeof fetch).pair('K7M29QXP','')).rejects.toMatchObject({code:'not_a_site'});
   });
+  it.each([
+    ['a timeout or dropped connection',new Error('timed out')],
+    ['a 201 whose key was lost',new Response('',{status:201})],
+    ['a gateway error page',new Response('Gateway timeout',{status:504})],
+  ])('says the PIN may be used up after %s',async(_,reply)=>{
+    const fetch=vi.fn(async()=>{if(reply instanceof Error)throw reply;return reply.clone();});
+    const error=await new PluginClient(SITE,undefined,fetch as unknown as typeof globalThis.fetch).pair('K7M29QXP','').catch(e=>e);
+    expect(error).toMatchObject({code:'pin_uncertain',uncertain:true});
+    expect(error.message).toBe(`No answer from ${SITE}, so this device isn't paired yet. Your PIN may already be used up. Check your internet, then run /ordering-pin in Discord to get a new PIN and enter that one.`);
+    expect(error.message).not.toContain('Could not reach');
+  });
+  it('keeps the site\'s update notice apart from a lost answer',async()=>{
+    const {fetch}=client(response({error:'Updating.',code:'update_maintenance'},503));
+    await expect(new PluginClient(SITE,undefined,fetch as unknown as typeof globalThis.fetch).pair('K7M29QXP','')).rejects.toMatchObject({code:'update_maintenance'});
+  });
   it.each([['pin_refused',401],['pin_malformed',400],['device_limit',409],['pairing_paused',429]])('reports the pairing refusal %s',async(code,status)=>{
     const {fetch}=client(response({error:`message for ${code}`,code},status as number));
     await expect(new PluginClient(SITE,undefined,fetch as unknown as typeof globalThis.fetch).pair('K7M29QXP','')).rejects.toMatchObject({code,message:`message for ${code}`});

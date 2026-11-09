@@ -348,10 +348,24 @@ describe('AndyMark: the quantity an item is sold in', () => {
     expect(posts).toEqual([[{ id: 11, quantity: 25 }], [{ id: 22, quantity: 2 }]]);
     expect(marksFor(result).map(mark => mark.orderId)).toEqual(['a', 'b']);
   });
-  it('tells the runner the multiple only when it is above 1', async () => {
+  it('tells the runner the multiple it read, 1 included, and nothing when it read none', async () => {
     shop(sold({ 11: '25', 22: '1' }));
     expect(await andymark.steps!.resolveLine(am(), hereTab)).toEqual({ key: '11', addAs: '11', available: true, soldIn: 25 });
-    expect(await andymark.steps!.resolveLine(am({ sku: 'AM-2' }), hereTab)).toEqual({ key: '22', addAs: '22', available: true });
+    expect(await andymark.steps!.resolveLine(am({ sku: 'AM-2' }), hereTab)).toEqual({ key: '22', addAs: '22', available: true, soldIn: 1 });
+    shop(pageWith('{}'));
+    expect(await andymark.steps!.resolveLine(am(), hereTab)).toEqual({ key: '11', addAs: '11', available: true });
+  });
+  it('hands each item back with the multiple it read, for the next estimate', async () => {
+    shop(sold({ 11: '25', 22: '1' }));
+    const result = await build(am({ id: 'a', quantity: 1 }), am({ id: 'b', sku: 'AM-2', quantity: 3 }));
+    expect(result.items.map(item => item.soldIn)).toEqual([25, 1]);
+    shop(pageWith('{}'));
+    expect((await build(am({ quantity: 1 }))).items[0].soldIn).toBeUndefined();
+  });
+  it('names a product for its pack size by the link\'s handle and the SKU, and nothing else', () => {
+    expect(andymark.packKey!(am({ productUrl: 'https://andymark.com/products/Test-Part?variant=11', sku: ' AM-1 ' }))).toBe('test-part|am-1');
+    expect(andymark.packKey!(am({ sku: null }))).toBeNull();
+    expect(andymark.packKey!(am({ productUrl: 'https://andymark.com/collections/all' }))).toBeNull();
   });
   it('rounds to the smallest multiple at or above the quantity', () => {
     expect([[1, 25], [24, 25], [25, 25], [26, 25], [30, 25], [50, 25], [99, 25], [7, 1], [1, 100]].map(([q, n]) => roundUpTo(q, n))).toEqual([25, 25, 25, 50, 50, 50, 100, 7, 100]);

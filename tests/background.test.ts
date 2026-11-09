@@ -169,6 +169,19 @@ describe('pairing and defaults',()=>{
     expect(await pair()).toMatchObject({ok:false,code:'not_a_site'});expect(chromeMock.permissions.remove).toHaveBeenCalledWith({origins:[`${SITE}/*`]});
     expect(values.deviceKey).toBeUndefined();
   });
+  it('after no answer, says the PIN may be used up, and says so again when that same PIN is refused',async()=>{
+    fresh();send(new Error('timed out'));
+    const lost=await pair();
+    expect(lost).toMatchObject({ok:false,code:'pin_uncertain'});expect(lost.error).toContain('Your PIN may already be used up');expect(lost.error).toContain('/ordering-pin');
+    expect(JSON.stringify(values)).not.toContain('K7M29QXP');
+    send(response({code:'pin_refused',error:'That PIN does not work.'},401));
+    const again=await pair();
+    expect(again).toMatchObject({ok:false,code:'pin_refused',error:'That PIN didn\'t work. It was probably used up when the site didn\'t answer last time. Run /ordering-pin in Discord to get a new PIN, then enter that one.'});
+    // A different PIN refused is just a wrong PIN.
+    expect(await pair({pin:'Q7M2-9QXP'})).toMatchObject({ok:false,code:'pin_refused',error:'That PIN does not work.'});
+    send(response({deviceKey:DEVICE_KEY,memberName:'Test Student A'},201),response(deviceOptions()));
+    expect((await pair({pin:'Q7M2-9QXP'})).data.pairing).toBe('paired');expect(values.pinNoAnswer).toBeUndefined();
+  });
   it('pairing elsewhere drops the old site\'s access and lists',async()=>{
     send(response({deviceKey:DEVICE_KEY,memberName:'Test Student A'},201),response(deviceOptions()));
     await pair({origin:'https://other-site.example.test'});

@@ -42,7 +42,7 @@ const PERSON = 'c0000000-0000-4000-8000-00000000000a', GUEST = 'c0000000-0000-40
 const UPDATE_URL = 'https://github.com/isriah/lancerlogin-part-requests-extension/releases';
 const DATABASE_URL = 'https://www.notion.so/11111111222243338444555555555555';
 const api = {
-  pins: new Set(['K7M29QXP']), revoked: false, calls: [], posts: [], gets: [], recipients: [], checks: [], recorded: new Map(), keysSeen: new Set(),
+  pins: new Set(['K7M29QXP', 'QQQQRRRR']), pairLost: new Set(['QQQQRRRR']), revoked: false, calls: [], posts: [], gets: [], recipients: [], checks: [], recorded: new Map(), keysSeen: new Set(),
   behavior: 'ok', latency: 0, release: null, maintenanceLeft: 0, retryAfter: '1', repeats: [], teams: [{ id: 'team-1', name: 'Test Team One' }, { id: 'team-2', name: 'Test Team Two' }],
   people: [{ id: PERSON, name: 'Test Student A' }, { id: GUEST, name: 'Test Guest' }], defaultRecipientId: null, currentKey: DEVICE_KEY,
   minimumVersion: '0.3.0', updateUrl: UPDATE_URL, databaseLink: DATABASE_URL, selfRevoke: 'ok', selfRevoked: [],
@@ -72,6 +72,8 @@ async function plugin(route) {
   if (name === '/pair') {
     const pin = String(body.pin).replaceAll('-', '');
     if (!api.pins.has(pin)) return reply({ error: 'That PIN does not work. Run /ordering-pin in Discord to get a new one.', code: 'pin_refused' }, 401);
+    // Spent, but the answer never arrived.
+    if (api.pairLost.has(pin)) { api.pins.delete(pin); api.pairLost.delete(pin); return route.fulfill({ status: 504, contentType: 'text/html', body: 'Gateway timeout' }); }
     api.pins.delete(pin); api.pairedLabel = body.deviceLabel; api.revoked = false;
     return reply({ deviceKey: api.currentKey, memberName: 'Test Student A' }, 201);
   }
@@ -271,6 +273,17 @@ try {
   if (realPrompt) check('Pairing: Chrome really showed the prompt that Allow pressed', allowed === 'clicked:Allow', allowed);
   check('Pairing: Allow grants no other site', !(await options.evaluate(() => chrome.permissions.contains({ origins: ['https://other-site.example.test/*'] }))));
 
+  // A PIN the site spent, but whose answer was lost: the student is told to get a new PIN, and the same again when that PIN is refused.
+  await pairWith(SITE, 'QQQQ-RRRR', 'Test laptop');
+  await until(options, () => /may already be used up/.test(document.getElementById('notice').textContent), 10000);
+  const lostPin = await textOf(options, 'notice');
+  check('Pairing: a lost answer says the PIN may be used up, and to get a new one', /Your PIN may already be used up/.test(lostPin) && /run \/ordering-pin in Discord to get a new PIN/.test(lostPin) && !/Could not reach/.test(lostPin) && !api.pins.has('QQQQRRRR'), lostPin);
+  await pairWith(SITE, 'QQQQ-RRRR', 'Test laptop', 'Allow');
+  await until(options, () => /probably used up/.test(document.getElementById('notice').textContent), 10000);
+  const reusedPin = await textOf(options, 'notice');
+  check('Pairing: the same PIN again is refused with the same advice, not a generic error', /That PIN didn't work\. It was probably used up when the site didn't answer last time\. Run \/ordering-pin in Discord to get a new PIN/.test(reusedPin) && !/does not work/.test(reusedPin), reusedPin);
+  check('Pairing: no PIN is kept in storage', !JSON.stringify(await options.evaluate(() => chrome.storage.local.get(null))).includes('QQQQRRRR'));
+
   // The address and PIN as pasted: a path on the address, no hyphen in the PIN, lower case.
   await pairWith(`  ${SITE}/settings/ `, 'k7m29qxp', 'Test laptop');
   await options.waitForSelector('#paired-card:not([hidden])', { timeout: 10000 }).catch(() => {});
@@ -307,12 +320,12 @@ try {
   check('Options: no sideways scroll at narrow width', await reopened.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await reopened.close();
 
-  // The update notice: the built version is 0.3.0, and 0.10.0 is above it only when compared as numbers.
-  api.minimumVersion = '0.10.0';
+  // The update notice: the built version is 1.0.0, and 1.10.0 is above it.
+  api.minimumVersion = '1.10.0';
   const outdated = watch(await context.newPage());
   await outdated.goto(optionsUrl);
   await outdated.setViewportSize({ width: 1366, height: 650 });
-  check('Update notice: Options shows it below the minimum, comparing numbers', await until(outdated, () => !document.getElementById('update-notice').hidden, 10000) && (await textOf(outdated, 'update-text')).includes(productionManifest.version) && /0\.10\.0/.test(await textOf(outdated, 'update-text')));
+  check('Update notice: Options shows it below the minimum, comparing numbers', await until(outdated, () => !document.getElementById('update-notice').hidden, 10000) && (await textOf(outdated, 'update-text')).includes(productionManifest.version) && /1\.10\.0/.test(await textOf(outdated, 'update-text')));
   check('Update notice: Options links to the releases page', (await outdated.getAttribute('#update-link', 'href')) === UPDATE_URL && (await outdated.getAttribute('#update-link', 'target')) === '_blank');
   check('Update notice: Options still works', await visible(outdated, '#paired-card') && !(await outdated.isDisabled('#unpair')));
   check('Options with the update notice fits 1366x650', await fits(outdated, 650), await scrollHeight(outdated));
@@ -435,7 +448,7 @@ try {
   await hideWarnings();
 
   // The popup's update notice, with every other warning too, and it blocks nothing.
-  api.minimumVersion = '0.10.0';
+  api.minimumVersion = '1.10.0';
   popup = await reopen(popup, page);
   await popup.waitForSelector('#request-form:not([hidden])');
   check('Update notice: the popup shows it below the minimum', await until(popup, () => !document.getElementById('update-notice').hidden, 8000));

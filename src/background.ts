@@ -1,5 +1,5 @@
 import type { Brand, Theme } from './brand';
-import { PluginClient, QUICK_TIMEOUT_MS, wireDraft, type CreateOutcome } from './client';
+import { PIN_USED_UP, PluginClient, QUICK_TIMEOUT_MS, wireDraft, type CreateOutcome } from './client';
 import { AppError } from './errors';
 import { ALREADY_SENT, CHECK_FAILED, pageReasons, repeatReason } from './express';
 import { cleanDeviceLabel, manifestAllowsLocalHttp, normalizePin, normalizeSiteAddress, originPattern } from './pairing';
@@ -20,6 +20,15 @@ const STALE_MS = 30_000;
 const BRAND_REFRESH_MS = 24 * 60 * 60 * 1000;
 
 interface Site { origin: string; memberName: string; deviceLabel: string; pairedAt: number; expired?: boolean }
+/** A pairing PIN that got no answer, as a fingerprint of the site and PIN, never the PIN itself. */
+interface PinNoAnswer { tag: string; at: number }
+const PIN_NO_ANSWER = 'pinNoAnswer';
+/** Long enough to cover a retry, well past any PIN's life. */
+const PIN_NO_ANSWER_MS = 60 * 60 * 1000;
+async function pinFingerprint(origin: string, pin: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${origin}\n${pin}`));
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 // Trusted contexts only: product pages' content scripts can never read this storage. The key stays in the worker.
 const ready = chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -301,9 +310,16 @@ async function handle(message: Message): Promise<unknown> {
       const pattern = originPattern(origin);
       if (!await chrome.permissions.contains({ origins: [pattern] })) throw new AppError(`Chrome has not given permission to reach ${origin}. Click Pair this device and choose Allow.`, 'permission_denied');
       const previous = await get<Site>('site');
+      const pinTag = await pinFingerprint(origin, pin);
       let result;
       try { result = await new PluginClient(origin).pair(pin, label); }
       catch (error) {
+        // A PIN that got no answer may be spent. Remember only a fingerprint of it, so the same PIN's refusal can say why.
+        if (error instanceof AppError && error.code === 'pin_uncertain') await put(PIN_NO_ANSWER, { tag: pinTag, at: Date.now() } satisfies PinNoAnswer);
+        else if (error instanceof AppError && error.code === 'pin_refused') {
+          const earlier = await get<PinNoAnswer>(PIN_NO_ANSWER);
+          if (earlier?.tag === pinTag && Date.now() - earlier.at < PIN_NO_ANSWER_MS) error = new AppError(PIN_USED_UP, error.code, false, true);
+        }
         // A PIN refusal proves this is the right site. Anything else may be a mistyped address, so do not keep access to it.
         const known = error instanceof AppError && ['pin_refused', 'pin_malformed', 'device_limit', 'pairing_paused'].includes(error.code);
         if (!known && previous?.origin !== origin) await chrome.permissions.remove({ origins: [pattern] }).catch(() => undefined);
@@ -315,6 +331,7 @@ async function handle(message: Message): Promise<unknown> {
       }
       const site: Site = { origin, memberName: result.memberName, deviceLabel: label, pairedAt: Date.now() };
       await chrome.storage.local.set({ deviceKey: result.deviceKey, site });
+      await chrome.storage.local.remove(PIN_NO_ANSWER);
       // Pairing always asks for the colors, however recently they were read.
       await chrome.storage.local.remove('brandAttemptAt');
       // Pairing has succeeded either way. The page shows the team list when it loads.

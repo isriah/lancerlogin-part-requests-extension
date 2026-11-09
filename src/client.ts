@@ -13,7 +13,11 @@ export const REVOKE_TIMEOUT_MS = 10_000;
 /** Team colors are decoration, and the checks before an Express send have a student waiting. Neither should hold anything up. */
 export const QUICK_TIMEOUT_MS = 10_000;
 const NO_ANSWER = 'The site did not confirm this request. It may already exist.';
-const CONFLICT = 'A request with this ID already exists with different details. Check the ordering database in Notion.';
+/** Pairing got no usable answer. The site may have used the PIN up anyway, and would refuse it a second time. */
+export const pinNoAnswer = (origin: string): string => `No answer from ${origin}, so this device isn't paired yet. Your PIN may already be used up. Check your internet, then run /ordering-pin in Discord to get a new PIN and enter that one.`;
+/** The same PIN, tried again after no answer, was refused. */
+export const PIN_USED_UP = 'That PIN didn\'t work. It was probably used up when the site didn\'t answer last time. Run /ordering-pin in Discord to get a new PIN, then enter that one.';
+const CONFLICT ='A request with this ID already exists with different details. Check the ordering database in Notion.';
 
 /** The result of one POST /requests. Everything the plugin's README lists lands in exactly one of these. */
 export type CreateOutcome =
@@ -166,11 +170,21 @@ export class PluginClient {
       return response.ok ? parseBranding(await response.json()) : null;
     } catch { return null; }
   }
+  /**
+   * A PIN works once. When the answer is lost or late, the site may have spent it anyway, so a timeout, a 201 without a key and a gateway's
+   * error page all become `pin_uncertain`, which tells the student to get a new PIN instead of retrying this one.
+   */
   async pair(pin: string, deviceLabel: string): Promise<{ deviceKey: string; memberName: string }> {
-    const reply = await this.call('/pair', 'POST', { pin, ...(deviceLabel ? { deviceLabel } : {}) });
+    let reply: Reply;
+    try { reply = await this.call('/pair', 'POST', { pin, ...(deviceLabel ? { deviceLabel } : {}) }); }
+    catch (error) {
+      if (error instanceof AppError && error.code === 'network') throw new AppError(pinNoAnswer(this.origin), 'pin_uncertain', true);
+      throw error;
+    }
     if (reply.status === 201 && typeof reply.body.deviceKey === 'string' && /^[A-Za-z0-9_-]{43}$/.test(reply.body.deviceKey)) {
       return { deviceKey: reply.body.deviceKey, memberName: text(reply.body.memberName, '') };
     }
+    if (reply.status === 201 || reply.status >= 500 && !reply.parsed && reply.retryAfter === null) throw new AppError(pinNoAnswer(this.origin), 'pin_uncertain', true);
     throw this.refused(reply, `${this.origin} did not answer like a site with Part Requests. Check the address from Discord.`);
   }
   async options(timeoutMs = REQUEST_TIMEOUT_MS): Promise<DeviceOptions> {

@@ -17,6 +17,8 @@ export interface ItemResult {
   storeChanged?: { asked: number; holds: number };
   /** The cart deliberately holds more than was requested, because the store sells this in multiples. */
   rounded?: RoundedLine;
+  /** The multiple the store said it sells this in, 1 included, when this build read one. Remembered for the next estimate. */
+  soldIn?: number;
 }
 export interface RoundedLine {
   soldIn: number;
@@ -132,6 +134,8 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
   /** How much of each line this run has accounted for. Two orders for one part add up instead of hiding each other. */
   const accounted = new Map<string, number>();
   const lines = new Map<string, HandledLine>();
+  /** The pack size each item's line was read with, by item. */
+  const packs = new Map<number, number>();
   let anySent = false;
   // The store's own steps go through this, so the final read can tell a store whose read loads the cart page from one that reads whatever is showing.
   let reading = false, readLoadedCart = false;
@@ -163,6 +167,7 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
         if (error instanceof LineProblem) { put(index, 'failed', error.message); continue; }
         throw error;
       }
+      if (target.soldIn !== undefined) packs.set(index, target.soldIn);
       if (target.available === false) { put(index, 'failed', 'The store shows this as out of stock.'); continue; }
       const before = lineIn(await read([target.key]), target.key)?.quantity ?? 0;
       const handled = lines.get(target.key) ?? { seen: before, asked: 0, soldIn: 1, rounded: false, landed: false, items: [], sent: new Set<number>(), over: [] };
@@ -251,6 +256,8 @@ export async function buildStore(store: StoreMethod, steps: StoreSteps, orders: 
     options.onFinalCheck?.();
     await recheckLines(store, read, () => readLoadedCart, lines, result, tab, options);
   }
+  // Last, because the steps above rebuild items.
+  for (const [index, soldIn] of packs) result.items[index] = { ...result.items[index], soldIn };
   return result;
 }
 /** Marks only what the final read left confirmed, a rounded line included, always at the order's own quantity. Nothing else about the cart goes to the plugin: an order's ID and its quantity. */
