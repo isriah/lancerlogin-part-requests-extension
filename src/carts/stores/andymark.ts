@@ -21,6 +21,31 @@ export async function andymarkReadProduct(handle: string): Promise<ProductAnswer
   return { kind: 'ok', handle: body.handle, variants: body.variants.map(v => ({ id: String(v.id), sku: typeof v.sku === 'string' ? v.sku.trim() : '', available: v.available !== false })) };
 }
 
+/**
+ * Injected. The whole-number quantity this variant is sold in, from the data AndyMark's product page carries for its own theme. That theme rounds
+ * each cart line to it when the cart page loads. Reads the page without leaving the tab where it is. Null when it can't be read, which isn't a refusal.
+ * The value is picked out by hand because the theme's own data can hold raw line breaks that JSON.parse rejects.
+ */
+export async function andymarkOrderedIn(handle: string, variant: string): Promise<{ kind: 'ok'; orderedIn: number | null } | PageStop> {
+  const unread = { kind: 'ok', orderedIn: null } as const;
+  let reply: Response;
+  try { reply = await fetch(`/products/${encodeURIComponent(handle)}`, { credentials: 'same-origin', headers: { Accept: 'text/html' } }); }
+  catch { return unread; }
+  if ([401, 403, 429, 503].includes(reply.status)) return { kind: 'stop', reason: 'bot-check', detail: `the store refused with ${reply.status}`, notSent: true };
+  if (!reply.ok || reply.redirected) return unread;
+  let html: string;
+  try { html = await reply.text(); } catch { return unread; }
+  const data = new DOMParser().parseFromString(html, 'text/html').querySelectorAll('script#variant_metafield_data');
+  for (const node of data) {
+    const found = new RegExp(`"${variant}"\\s*:\\s*\\{[^{}]*?"orderedInQuantity"\\s*:\\s*"?(\\d+)"?\\s*[,}]`).exec(node.textContent ?? '');
+    const value = Number(found?.[1]);
+    if (Number.isSafeInteger(value) && value >= 1) return { kind: 'ok', orderedIn: value };
+  }
+  return unread;
+}
+/** The theme's own rule: rounds down to a whole multiple, and never below one of them. */
+export const andymarkRounds = (quantity: number, orderedIn: number): number => Math.max(Math.floor(quantity / orderedIn) * orderedIn, orderedIn);
+
 const sameSku = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 /**
@@ -57,6 +82,11 @@ export const andymark: StoreMethod = {
       if (product.kind === 'not-found') throw new LineProblem('The store no longer has this product page.');
       if (product.handle.toLowerCase() !== link.handle.toLowerCase()) throw new LineProblem('The store answered with a different product than the saved link.');
       const chosen = chooseAndyMarkVariant(product.variants, link.variant, order.sku);
+      if (chosen.available) {
+        const { orderedIn } = stopIf(await tab.run(andymarkOrderedIn, link.handle, chosen.id));
+        const quantity = order.quantity!;
+        if (orderedIn && quantity % orderedIn !== 0) throw new LineProblem(`AndyMark sells this in multiples of ${orderedIn}, so it would change ${quantity} to ${andymarkRounds(quantity, orderedIn)}. Fix the quantity in Notion, or add it by hand.`);
+      }
       return { key: chosen.id, addAs: chosen.id, available: chosen.available };
     },
   },

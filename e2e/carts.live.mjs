@@ -126,7 +126,10 @@ try {
   // result and is never tried again from here.
   const shopify = [
     { name: 'ambrosia', vendor: 'Ambrosia Filament', home: 'https://ambrosiafilament.com', sku: 'AMB4605STAREF' },
+    // Sold in 25s, so a build should refuse quantity 1 with nothing added.
     { name: 'andymark', vendor: 'AndyMark', home: 'https://andymark.com', sku: 'am-1775' },
+    // A $0.40 screw whose "ordered in" value was 1 when checked, so it should add normally. Run only by name, so a full run still adds one item per store.
+    ...(only?.includes('andymark-normal') ? [{ name: 'andymark-normal', vendor: 'AndyMark', home: 'https://andymark.com', sku: 'am-1417' }] : []),
     { name: 'ctre', vendor: 'CTRE', home: 'https://store.ctr-electronics.com', sku: 'WCP-1508' },
     { name: 'ferrules', vendor: 'FerrulesDirect', home: 'https://www.ferrulesdirect.com', sku: 'FDSPP6' },
     { name: 'sds', vendor: 'SDS', home: 'https://www.swervedrivespecialties.com', variant: '51590193905965' },
