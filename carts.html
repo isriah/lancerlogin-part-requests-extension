@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en" class="app" data-theme="dark" data-kind="page"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Part Requests - Carts</title><script src="/appearance-boot.js"></script></head>
+<body>
+<div class="x-page"><div class="x-page-wrap">
+  <header class="x-page-head">
+    <div class="x-page-brand"><div class="brand-mark" aria-hidden="true">L</div><span class="brand-heading"><strong id="brand-name">LancerLogin</strong><span>Part Requests</span></span></div>
+    <script src="/appearance-boot.js"></script>
+    <div class="x-page-actions"><button id="open-settings" class="ui-button" type="button">Settings</button><button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Light mode"><span class="theme-toggle-label" aria-hidden="true">Light mode</span><span class="theme-toggle-track" aria-hidden="true"><span></span></span></button></div>
+  </header>
+  <main class="x-stack">
+    <h1 class="x-carts-title">Carts</h1>
+    <p id="carts-notice" class="ui-status settings-notice x-carts-notice" role="note"><strong>No AI places your orders.</strong> This extension doesn't use AI. It only helps add items to a store's cart, after you click Build carts. You review the cart and place every order yourself on the store's own site.</p>
+    <div id="notice" class="x-tone" data-tone="neutral" role="status" aria-live="polite" hidden></div>
+    <p id="update-notice" class="x-tone" data-tone="warning" role="status" hidden><strong>Update available:</strong> <span id="update-text"></span> <a id="update-link" target="_blank" rel="noopener noreferrer" hidden>Get the update &#8599;</a></p>
+    <div id="list-notices" class="x-stack" hidden></div>
+    <section id="state" class="ui-card x-empty" hidden><h2 id="state-title"></h2><p id="state-text"></p><div class="x-actions"><button id="state-action" class="ui-button" type="button" hidden></button></div></section>
+    <section id="permission" class="ui-card" aria-labelledby="permission-title" hidden>
+      <div class="x-card-head"><h2 id="permission-title">Allow access to these stores</h2><span id="permission-count" class="status-pill ui-status" data-tone="warning"></span></div>
+      <div class="x-card-body">
+        <p class="x-permission-text">To fill carts, Chrome has to let this extension use each store's site. Chrome will show you the list and ask once. It's used only when you click Build carts.</p>
+        <ul id="permission-stores" class="x-store-grid"></ul>
+        <div class="x-actions"><button id="permission-allow" class="ui-button ui-button--primary" type="button">Allow store access</button><button id="permission-skip" class="ui-button" type="button">Not now, use the checklist</button></div>
+        <p class="x-help">Without access, you can still see open orders and add items yourself from a checklist.</p>
+      </div>
+    </section>
+    <div id="orders-view" class="x-stack" hidden>
+      <div id="action-bar" class="x-sticky" role="status"><div class="x-sticky-copy"><strong id="selection-count"></strong><span id="selection-total"></span></div><div class="x-actions"><button id="allow-later" class="ui-button" type="button" hidden>Allow store access</button><button id="refresh" class="ui-button" type="button">Refresh</button><button id="stop" class="ui-button" type="button" hidden>Stop</button><button id="build" class="ui-button ui-button--primary" type="button">Build carts</button></div></div>
+      <section class="responsive-table x-orders" aria-label="Open orders by store"><table id="orders-table" class="ui-table"><colgroup><col class="x-col-check"><col><col class="x-col-qty"><col class="x-col-price"><col class="x-col-req"><col class="x-col-status"></colgroup>
+        <thead><tr><th scope="col"><span class="visually-hidden">Include</span></th><th scope="col">Item</th><th scope="col">Qty</th><th scope="col">Unit price</th><th scope="col" class="x-td-req">Requester</th><th scope="col">Status</th></tr></thead></table></section>
+    </div>
+    <div id="results-view" class="x-stack" hidden>
+      <p class="ui-status settings-notice" role="status"><strong>Nothing was bought.</strong> Review each cart below and check out on the store's own site. These orders stay open in Notion until someone marks them ordered there.</p>
+      <div class="x-sticky"><div class="x-sticky-copy"><strong id="results-when"></strong><span id="results-counts"></span></div><div class="x-actions"><button id="retry-marks" class="ui-button" type="button" hidden>Try recording again</button><button id="back" class="ui-button" type="button">Back to open orders</button></div></div>
+      <p id="marks-notice" class="x-tone" data-tone="warning" role="status" hidden></p>
+      <div id="results" class="x-results"></div>
+    </div>
+  </main>
+  <footer>Part Requests &middot; v<span id="version"></span></footer>
+</div></div>
+<script type="module" src="/src/carts/page.ts"></script>
+</body></html>

@@ -44,11 +44,11 @@ function oneAtATime<T>(tabId: number, work: () => Promise<T>): Promise<T> {
 let brandRefresh: Promise<void> | undefined;
 
 async function view(): Promise<SettingsView> {
-  const [site, key, options, defaultTeam, brand, theme, expressEnabled] = await Promise.all([get<Site>('site'), get<string>('deviceKey'), get<DeviceOptions>('options'), get<string>('defaultTeam'), get<Brand>('brand'), get<Theme>('theme'), get<boolean>('expressEnabled')]);
+  const [site, key, options, defaultTeam, brand, theme, expressEnabled, cartsEnabled] = await Promise.all([get<Site>('site'), get<string>('deviceKey'), get<DeviceOptions>('options'), get<string>('defaultTeam'), get<Brand>('brand'), get<Theme>('theme'), get<boolean>('expressEnabled'), get<boolean>('cartsEnabled')]);
   return {
     pairing: !site ? 'unpaired' : key && !site.expired ? 'paired' : 'expired',
     origin: site?.origin, memberName: site?.memberName, deviceLabel: site?.deviceLabel, options, defaultTeam: defaultTeam || '',
-    brand: site ? brand : undefined, theme: theme === 'light' ? 'light' : 'dark', expressEnabled: expressEnabled === true,
+    brand: site ? brand : undefined, theme: theme === 'light' ? 'light' : 'dark', expressEnabled: expressEnabled === true, cartsEnabled: cartsEnabled === true,
   };
 }
 /** Asks the site for its colors if it's due. Any failure keeps the last good colors. It never rejects. */
@@ -310,7 +310,7 @@ async function handle(message: Message): Promise<unknown> {
         throw error;
       }
       if (previous && previous.origin !== origin) {
-        await chrome.storage.local.remove(['options', 'defaultTeam', 'brand', 'expressEnabled']);
+        await chrome.storage.local.remove(['options', 'defaultTeam', 'brand', 'expressEnabled', 'cartsEnabled']);
         await chrome.permissions.remove({ origins: [originPattern(previous.origin)] }).catch(() => undefined);
       }
       const site: Site = { origin, memberName: result.memberName, deviceLabel: label, pairedAt: Date.now() };
@@ -327,7 +327,7 @@ async function handle(message: Message): Promise<unknown> {
       let revokedOnSite = false;
       try { revokedOnSite = await (await paired()).client.revokeSelf(); }
       catch { /* Offline, expired or no permission: Options says an Admin may need to remove the device. */ }
-      await chrome.storage.local.remove(['deviceKey', 'site', 'options', 'defaultTeam', 'brand', 'brandAttemptAt', 'expressEnabled']);
+      await chrome.storage.local.remove(['deviceKey', 'site', 'options', 'defaultTeam', 'brand', 'brandAttemptAt', 'expressEnabled', 'cartsEnabled']);
       if (site) await chrome.permissions.remove({ origins: [originPattern(site.origin)] }).catch(() => undefined);
       return { ...await view(), revokedOnSite };
     }
@@ -341,6 +341,25 @@ async function handle(message: Message): Promise<unknown> {
       if (message.enabled && (await view()).pairing !== 'paired') throw new AppError('Pair this device first.');
       await put('expressEnabled', message.enabled);
       return view();
+    case 'set-carts':
+      if (typeof message.enabled !== 'boolean') throw new AppError('Unknown setting.');
+      if (message.enabled && (await view()).pairing !== 'paired') throw new AppError('Pair this device first.');
+      await put('cartsEnabled', message.enabled);
+      return view();
+    case 'carts-orders': {
+      const outcome = await device(client => client.orders(message.refresh === true));
+      // The Admin's switch can change between option reads. Keep the saved copy honest, so the popup hides or shows Carts correctly.
+      if (outcome.kind === 'disabled' || outcome.kind === 'orders') {
+        const options = await get<DeviceOptions>('options');
+        const enabled = outcome.kind === 'orders';
+        if (options && options.cartsEnabled !== enabled) await put('options', { ...options, cartsEnabled: enabled });
+      }
+      return outcome;
+    }
+    case 'carts-marks': {
+      if (!Array.isArray(message.marks) || message.marks.length > 100) throw new AppError('Too many cart marks at once.');
+      return device(client => client.mark(message.marks));
+    }
     case 'save-defaults': {
       const options = await get<DeviceOptions>('options');
       if (!options?.teams.some(t => t.id === message.defaultTeam)) throw new AppError('Choose a team.');
@@ -432,7 +451,7 @@ async function handle(message: Message): Promise<unknown> {
 }
 
 chrome.runtime.onMessage.addListener((message: Message, sender, respond) => {
-  const allowed = [chrome.runtime.getURL('popup.html'), chrome.runtime.getURL('options.html')];
+  const allowed = [chrome.runtime.getURL('popup.html'), chrome.runtime.getURL('options.html'), chrome.runtime.getURL('carts.html')];
   if (sender.id !== chrome.runtime.id || !sender.url || !allowed.includes(sender.url.split('?')[0].split('#')[0])) {
     respond({ ok: false, error: 'Untrusted message source.' }); return false;
   }

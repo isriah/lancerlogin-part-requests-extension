@@ -1,6 +1,7 @@
 import './styles.css';
 import { applyAppearance } from './appearance';
 import { DEFAULT_PRIMARY, DEFAULT_SECONDARY, brandTokens } from './brand';
+import { allStoreOrigins } from './carts/registry';
 import { manifestAllowsLocalHttp, normalizePin, normalizeSiteAddress, originPattern } from './pairing';
 import { VENDORS } from './vendors';
 import type { SettingsView, UnpairView } from './types';
@@ -11,6 +12,7 @@ const address = el<HTMLInputElement>('site-address');
 const pin = el<HTMLInputElement>('pin');
 const label = el<HTMLInputElement>('device-label');
 const express = el<HTMLInputElement>('express-enabled');
+const carts = el<HTMLInputElement>('carts-enabled');
 for (const vendor of VENDORS) { const li = document.createElement('li'); li.textContent = vendor.label; el('vendor-list').append(li); }
 el('version').textContent = globalThis.chrome?.runtime?.getManifest?.().version ?? '';
 
@@ -57,6 +59,12 @@ function render(): void {
   if (isPaired) state.dataset.tone = 'success'; else if (settings.pairing === 'expired') state.dataset.tone = 'warning'; else delete state.dataset.tone;
   express.disabled = !isPaired;
   express.checked = isPaired && settings.expressEnabled === true;
+  // The Admin's switch hides Carts altogether. This device's own choice comes back if the Admin turns it on again.
+  const allowed = settings.options?.cartsEnabled !== false;
+  el('carts-setting').hidden = !allowed;
+  carts.disabled = !isPaired;
+  carts.checked = isPaired && settings.cartsEnabled === true;
+  el('carts-open-row').hidden = !(isPaired && allowed && settings.cartsEnabled === true);
   el('settings-unpaired').hidden = isPaired;
   if (settings.origin && !address.value) address.value = settings.origin;
   if (settings.deviceLabel && !label.value) label.value = settings.deviceLabel;
@@ -83,6 +91,25 @@ express.addEventListener('change', async () => {
     notice(settings.expressEnabled ? 'Express addition is on. A toolbar click sends the request when everything was filled in from the page.' : 'Express addition is off. Every request waits for you on the form.', 'success');
   } catch (error) { express.checked = settings.expressEnabled === true; notice(errorText(error), 'error'); }
 });
+carts.addEventListener('change', () => {
+  if (carts.checked) {
+    // Chrome only shows the prompt during this click, so nothing may be awaited before this request.
+    const asked = chrome.permissions.request({ origins: allStoreOrigins() });
+    void asked.then(async granted => {
+      settings = await send<SettingsView>({ type: 'set-carts', enabled: true }); render();
+      notice(granted ? 'Carts is on. Open Carts to see your team\'s open orders.' : 'Carts is on, without store access. You can still see open orders and add items yourself from a checklist. Open Carts to allow access later.', granted ? 'success' : 'warning');
+    }).catch(error => { carts.checked = false; notice(errorText(error), 'error'); });
+    return;
+  }
+  void (async () => {
+    try {
+      settings = await send<SettingsView>({ type: 'set-carts', enabled: false }); render();
+      await chrome.permissions.remove({ origins: allStoreOrigins() }).catch(() => undefined);
+      notice('Carts is off, and this extension gave back its access to the stores.', 'success');
+    } catch (error) { carts.checked = settings.cartsEnabled === true; notice(errorText(error), 'error'); }
+  })();
+});
+el('carts-open').addEventListener('click', () => { void chrome.tabs.create({ url: chrome.runtime.getURL('carts.html') }); });
 el<HTMLFormElement>('pair-form').addEventListener('submit', event => {
   event.preventDefault();
   let origin: string; let code: string;
@@ -116,6 +143,7 @@ el('unpair').addEventListener('click', async () => {
   notice('Unpairing...');
   try {
     const result = await send<UnpairView>({ type: 'unpair' });
+    await chrome.permissions.remove({ origins: allStoreOrigins() }).catch(() => undefined);
     settings = result;
     address.value = ''; label.value = ''; render();
     if (result.revokedOnSite) notice('Unpaired. This device was removed from your team\'s site, which frees one of your 5 device slots, and this computer no longer has the key.', 'success');

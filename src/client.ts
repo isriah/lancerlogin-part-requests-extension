@@ -2,6 +2,7 @@ import { AppError } from './errors';
 import { parseBranding } from './brand';
 import { apiBase } from './pairing';
 import { isVersion } from './version';
+import type { CartMark, CartOrder, MarkInput, MarksOutcome, OrdersOutcome, StatusGroup } from './carts/types';
 import type { DeviceOptions, Repeat, RequestDraft } from './types';
 
 type Json = Record<string, any>;
@@ -65,6 +66,62 @@ export function interpretCreate({ status, body, retryAfter, parsed }: Reply): Cr
   }
   return { kind: 'no-answer', message: NO_ANSWER };
 }
+const string = (value: unknown, limit = 2000): string | null => typeof value === 'string' && value.trim() ? value.slice(0, limit) : null;
+const strings = (value: unknown): string[] => Array.isArray(value) ? value.flatMap(item => string(item, 200) ?? []) : [];
+/** The plugin promises http or https. Nothing else is ever shown as a link or used to find a product. */
+function safeProductUrl(value: unknown): string | null {
+  try {
+    const u = new URL(String(value));
+    if (value && ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password) return u.href;
+  } catch { /* Blank, like a row with no link. */ }
+  return null;
+}
+const GROUPS: readonly StatusGroup[] = ['NORMAL', 'RUSH', 'SLOW', 'INCOMPLETE'];
+function markFrom(value: Json): CartMark[] {
+  if (!value || typeof value !== 'object' || !Number.isFinite(value.quantity)) return [];
+  return [{ memberName: string(value.memberName, 120) ?? 'Someone', deviceLabel: string(value.deviceLabel, 120) ?? '', quantity: value.quantity, markedMs: Number.isFinite(value.markedMs) ? value.markedMs : 0, expiresMs: Number.isFinite(value.expiresMs) ? value.expiresMs : 0, ownDevice: value.ownDevice === true }];
+}
+/** Rows are also written by hand in Notion, so anything can be blank. A row without an ID or a known group can't be acted on, and is left out. */
+export function orderFrom(value: Json): CartOrder[] {
+  if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !GROUPS.includes(value.statusGroup)) return [];
+  return [{
+    id: value.id.slice(0, 200), url: safePageUrl(value.url), description: string(value.description), vendor: string(value.vendor, 200), urlVendor: string(value.urlVendor, 200),
+    sku: string(value.sku), productUrl: safeProductUrl(value.productUrl), quantity: Number.isFinite(value.quantity) && value.quantity > 0 ? value.quantity : null, unitPrice: Number.isFinite(value.unitPrice) && value.unitPrice >= 0 ? value.unitPrice : null,
+    status: string(value.status, 200) ?? value.statusGroup, statusGroup: value.statusGroup, teams: strings(value.teams), requesters: strings(value.requesters),
+    cartMarks: Array.isArray(value.cartMarks) ? value.cartMarks.flatMap(markFrom) : [],
+  }];
+}
+const ADMIN_CODES = new Set(['notion_access_lost', 'notion_not_connected', 'notion_schema_changed', 'credentials_unavailable', 'credentials_unreadable']);
+const WAIT_CODES = new Set(['rate_limited', 'notion_unavailable', 'notion_rate_limited', 'update_maintenance']);
+const waitFor = (reply: Reply, fallback: number): number => {
+  const said = reply.retryAfter ?? (Number.isFinite(reply.body.retryAfterSeconds) ? reply.body.retryAfterSeconds : fallback);
+  return Math.min(Math.max(said, 1), 120);
+};
+const CARTS_OFF = 'An Admin turned Carts off for your team.';
+/** Maps every answer of GET /orders to what the page does. See "How GET /orders reads Notion" in the plugin's README. */
+export function interpretOrders(reply: Reply): OrdersOutcome {
+  const { status, body, parsed } = reply;
+  const code = text(body.code, parsed ? 'refused' : 'not_a_site');
+  if (status === 200 && parsed && Array.isArray(body.orders)) {
+    return {
+      kind: 'orders', orders: body.orders.flatMap(orderFrom), fetchedMs: Number.isFinite(body.fetchedMs) ? body.fetchedMs : null, stale: body.stale === true, refreshing: body.refreshing === true,
+      refreshError: string(body.refreshError, 200), truncated: body.truncated === true, skippedRows: Number.isFinite(body.skippedRows) && body.skippedRows > 0 ? body.skippedRows : 0,
+    };
+  }
+  if (status === 202) return { kind: 'refreshing', retryAfterSeconds: waitFor(reply, 2) };
+  if (status === 403 && code === 'carts_disabled') return { kind: 'disabled', message: text(body.error, CARTS_OFF) };
+  if (ADMIN_CODES.has(code)) return { kind: 'admin', code, message: text(body.error, 'The site can\'t read the ordering database right now. An Admin has to fix this.') };
+  if (WAIT_CODES.has(code)) return { kind: 'wait', code, message: text(body.error, 'The site is busy reading the ordering database.'), retryAfterSeconds: waitFor(reply, 30) };
+  return { kind: 'error', code, message: parsed ? text(body.error, 'The site did not return the open orders. Try again shortly.') : 'The site did not return the open orders. Try again shortly.' };
+}
+export function interpretMarks(reply: Reply): MarksOutcome {
+  const { status, body, parsed } = reply;
+  const code = text(body.code, parsed ? 'refused' : 'not_a_site');
+  if (status === 201 && parsed) return { kind: 'marked', marked: Number.isFinite(body.marked) ? body.marked : 0 };
+  if (status === 403 && code === 'carts_disabled') return { kind: 'disabled', message: text(body.error, CARTS_OFF) };
+  if (status === 429 || status === 503 && (code === 'update_maintenance' || !parsed && reply.retryAfter !== null)) return { kind: 'wait', code, message: status === 429 ? 'The site asked to wait a moment.' : 'The site is updating.', retryAfterSeconds: waitFor(reply, 30) };
+  return { kind: 'error', code, message: parsed ? text(body.error, 'The site did not record this.') : 'The site did not record this.' };
+}
 /** Exactly the fields the plugin accepts: it refuses a draft with anything else. */
 export const wireDraft = (d: RequestDraft): RequestDraft => ({
   description: d.description, status: d.status, url: d.url, sku: d.sku, team: d.team, recipient: d.recipient,
@@ -127,7 +184,13 @@ export class PluginClient {
       minimumExtensionVersion: isVersion(reply.body.minimumExtensionVersion) ? reply.body.minimumExtensionVersion : null,
       updateUrl: safeUpdateUrl(reply.body.updateUrl),
       databaseLink: safePageUrl(reply.body.databaseLink),
+      ...(typeof reply.body.cartsEnabled === 'boolean' ? { cartsEnabled: reply.body.cartsEnabled } : {}),
     };
+  }
+  async orders(refresh = false): Promise<OrdersOutcome> { return interpretOrders(await this.call(`/orders${refresh ? '?refresh=1' : ''}`, 'GET')); }
+  /** Up to 100 at a time, as the plugin allows. Only an order's ID and its quantity go to the site. */
+  async mark(marks: MarkInput[]): Promise<MarksOutcome> {
+    return interpretMarks(await this.call('/orders/marks', 'POST', { marks: marks.map(({ orderId, quantity }) => ({ orderId, quantity })) }));
   }
   /** True only when the site confirmed this key is revoked. Offline and an unknown key reject, as on any other call. */
   async revokeSelf(): Promise<boolean> {

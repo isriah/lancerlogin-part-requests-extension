@@ -20,6 +20,7 @@
 | `src/background.ts` | Trusted message boundary, the device key, local drafts and receipts, capture, submit and retries |
 | `src/popup.ts`, `popup.html` | Review, totals, autosave, repeat warning, pairing prompt, result and recovery UI |
 | `src/options.ts`, `options.html` | Pairing, Chrome's permission prompt, unpairing and defaults |
+| `src/carts/`, `carts.html` | The Carts page, the store interface and the stores. See [Carts](CARTS.md) |
 | `scripts/package.mjs` | The zip for students |
 | `tests/fixtures/vendors.ts` | Sanitized representative product DOM and expected capture fields |
 
@@ -115,6 +116,12 @@ npm run e2e
 `e2e/extension.e2e.mjs` loads `dist` in a real browser with a simulated plugin API routed at the site's origin, so the service worker's real `fetch`, host permission and CSP are all exercised. It also covers Express addition (off by default, every fallback reason, one send despite closing and rapid reopening, uncertain and no answer never resent), team colors (valid, malformed, failed fetch keeps the last good, Unpair clears), both themes, layout sizes in each state, CSP errors and no remote font requests. Set `E2E_SCREENSHOTS` to a folder to save `built-v2-*.png` there for comparing with the mockup. It covers pairing, Deny and Allow, capture, draft persistence, rejected pages, twelve real clicks at one spot, pending and uncertain results, request payloads, a revoked device, Unpair online, offline and with an expired key, the update notice, the ordering database link, maintenance retries with the same ID, the repeat warning, layout size, and CSP errors. `E2E_SCREENSHOTS=<folder>` saves screenshots, and `E2E_LIVE_STORES=1` uses real store pages instead of synthetic copies.
 
 On Windows it opens a headed Edge and presses Chrome's real permission prompt through `e2e/press-prompt-button.ps1`, which only looks at that browser's own windows, so don't use the mouse during that part. Set `E2E_PROMPT=stub` or use another platform to simulate the prompt instead, which proves less. Set `E2E_CHANNEL` or `E2E_BROWSER` to choose a browser. Its copy of the manifest lists the test stores as `host_permissions`, because automation cannot click the toolbar, so it does not prove the toolbar permission grant. Http and localhost are never in the production manifest. A test build against a local preview adds them to its own copy. Never place a real credential, personal address, account header, cart, or complete authenticated page dump in fixtures.
+
+### Carts
+
+`npm run e2e:carts` needs a build. It loads `dist` in the same way, with the simulated plugin and synthetic copies of the four stores routed at their real addresses. It presses Chrome's real prompt for the Carts switch, covers every `/orders` answer, the selection rules, Incomplete flags, retries, read-back mismatch, short stock, walls, marks only for confirmed lines and the disabled switches, and asserts that no request reaches a checkout address and none leaves for another site. `E2E_SCREENSHOTS=<folder>` saves `built-carts-*.png`. Playwright doesn't intercept a redirect's target, so synthetic stores answer in place instead of redirecting.
+
+`npm run live:carts` adds real items to throwaway profiles. See [Carts](CARTS.md#testing-a-store) before running it. `LIVE_ONLY=rev-pololu,wcp,mcmaster` chooses which.
 
 ## Acceptance on a real site
 

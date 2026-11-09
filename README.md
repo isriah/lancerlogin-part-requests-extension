@@ -1,6 +1,6 @@
 # Robotics Part Requests
 
-A Chrome extension that turns the product you are viewing into a reviewed part request in your team's Notion ordering database. It supports the 20 fixed vendors in the team's ordering form. It sends through your team's LancerLogin site, using the [Part Requests plugin](https://github.com/isriah/lancerlogin-part-requests), which holds the Notion connection. The extension holds no Notion token and never contacts Notion. It creates requests; the coach still handles purchasing and receiving.
+A Chrome extension that turns the product you are viewing into a reviewed part request in your team's Notion ordering database. It supports the 20 fixed vendors in the team's ordering form. It sends through your team's LancerLogin site, using the [Part Requests plugin](https://github.com/isriah/lancerlogin-part-requests), which holds the Notion connection. The extension holds no Notion token and never contacts Notion. It creates requests, and can help fill store carts. The coach still handles purchasing and receiving.
 
 Students never sign in to LancerLogin. They pair the extension once, with a PIN from Discord.
 
@@ -53,11 +53,18 @@ It always sends quantity 1 as a NORMAL request. If anything doesn't hold, nothin
 
 The service worker owns the send, so closing the popup doesn't cancel it. It uses the same submission ID and duplicate protection as **Create request**: reopening shows the sending state or the receipt and never sends again, and an uncertain result is never resent. There is no undo, because the Notion connection can't delete pages, so the success screen says how to change or remove a request in Notion.
 
+### Carts
+
+**Carts** is a switch in Options, off by default. It lists your team's open orders by store, and after you click **Build carts** it adds the items you ticked to each store's cart in this browser. It never checks out. You review the cart and place every order yourself on the store's own site. The extension doesn't use AI.
+
+NORMAL and RUSH start ticked. SLOW and Incomplete start unticked, and anything missing what its store needs can't be ticked. WCP, REV, Pololu and McMaster are built. Other stores are a checklist of links and quantities for now. A login wall, CAPTCHA, bot check or unexpected page stops that store and leaves its items as links. See [Carts](docs/CARTS.md).
+
 ## Verification status
 
 - Unit tests (`npm test`): 412 pass, including all 20 adapter fixtures, the device API's results, version comparison, Unpair's outcomes, worker persistence, Express addition's conditions and sends, team color validation and contrast, and popup and Options interactions.
 - Browser end-to-end run (`npm run e2e`): 276 checks against the built extension with a simulated plugin API and Chrome's real permission prompt. It cannot prove the toolbar-click permission grant.
 - A pass against the real plugin in a local preview, with Notion stubbed, has been run on this version, including team colors from Core's real status route; see [Development](docs/DEVELOPMENT.md#tests). Version 0.3.0 has not been run against real Notion, real Discord, real Cloudflare or Google Chrome itself, and Express addition has not been tried from a real toolbar click.
+- Carts: `npm run e2e:carts` drives the built extension against synthetic stores and a simulated plugin, and `npm run live:carts` adds one real item per store in a throwaway profile. REV, Pololu and WCP passed live. McMaster stopped at its login wall, so it is unproven. Version 0.4.0's Carts has not run against a signed-in store account or in Google Chrome itself. See [Carts](docs/CARTS.md#evidence).
 - Vendor reader checks: see the [vendor matrix](docs/VENDORS.md).
 
 ## Develop
@@ -73,6 +80,6 @@ npm run package
 
 `npm run check` runs tests and the production build. `npm run e2e` drives the built extension in a real browser. `npm run package` writes `release/robotics-part-requests-<version>.zip`, and refuses to package a build with test permissions. `npm run dev` serves the layouts locally, but extension APIs are available only after loading `dist` as an extension.
 
-See [setup and troubleshooting](docs/SETUP.md), [architecture and tests](docs/DEVELOPMENT.md), and [vendor maintenance](docs/VENDORS.md). Bundled font licenses are in [THIRD_PARTY_NOTICES.txt](public/THIRD_PARTY_NOTICES.txt), which ships inside the extension.
+See [setup and troubleshooting](docs/SETUP.md), [architecture and tests](docs/DEVELOPMENT.md), [Carts and adding a store](docs/CARTS.md), and [vendor maintenance](docs/VENDORS.md). Bundled font licenses are in [THIRD_PARTY_NOTICES.txt](public/THIRD_PARTY_NOTICES.txt), which ships inside the extension.
 
-Not included: unsupported stores, the Other vendor option, Chrome Web Store publication, RUSH/SLOW requests, bulk capture, actual purchases, and subsequent order management.
+Not included: unsupported stores, the Other vendor option, Chrome Web Store publication, creating RUSH/SLOW requests, bulk capture, actual purchases, and subsequent order management.

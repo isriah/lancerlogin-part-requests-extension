@@ -40,6 +40,18 @@ There's no undo. To change a request, or to ask for more than 1, click **Open in
 
 Clicking the extension again on a page you already sent shows that request and never sends it twice. Use **New request** only if you really want another one.
 
+## Carts (optional)
+
+Carts helps whoever places orders. It lists your team's open orders by store and adds the ones you tick to each store's cart. No AI places your orders. This extension doesn't use AI. It only helps add items to a store's cart, after you click Build carts. You review the cart and place every order yourself on the store's own site.
+
+1. In **Settings**, turn on **Carts**. Chrome asks to use the stores' sites. Choose **Allow**, or say no and use it as a checklist.
+2. Click **Carts** in the extension's popup, or **Open Carts** in Settings.
+3. Check the ticks. NORMAL and RUSH start ticked. SLOW and Incomplete don't. If a row says **Can't add yet**, fix what it names in Notion. If it says **Already in someone's cart**, ask them first.
+4. Click **Build carts** and keep that tab open. It goes one item at a time, so it takes a little while.
+5. Read the results for each store, then open each cart and check it. **Flagged** means it's in the cart but needs a look. **Failed** means it isn't in the cart. **Add these yourself** means nothing was tried, so use the links.
+
+If a store asks you to sign in or shows a robot check, Carts stops there and gives you the links. Sign in on the store's site and build again, because a second build only adds what's missing. Marking an order as ordered still happens in Notion.
+
 ## Light mode
 
 The extension starts dark. Use the **Light mode** switch at the top of settings to change it. Once you pair, it uses your team's name and colors.

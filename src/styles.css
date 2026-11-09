@@ -183,6 +183,65 @@ html[data-kind="popup"] { font-size: 16px; }
 .x-empty p { margin: 0; max-width: 34rem; }
 
 
+/* Carts, from the approved mockup. */
+.x-sticky { position: sticky; top: var(--space-2); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4); border: 1px solid var(--ui-border); border-radius: var(--radius-card); background: var(--ui-surface); }
+.x-sticky strong { font-size: var(--text-small); }
+.x-sticky span { color: var(--ui-text-muted); font-size: var(--text-small); }
+.x-sticky-copy { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: center; min-width: 0; }
+.responsive-table { min-width: 0; overflow-x: auto; border: 1px solid var(--ui-border); border-radius: var(--radius-card); background: var(--ui-surface); }
+.ui-table { width: 100%; border-collapse: collapse; }
+.ui-table th,.ui-table td { text-align: left; border-bottom: 1px solid var(--ui-border); }
+.ui-table thead th { color: var(--ui-text-muted); font-family: var(--font-body); font-size: var(--text-caption); font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.x-orders { font-size: .875rem; }
+.x-orders table { table-layout: fixed; }
+.x-orders th,.x-orders td { min-width: 0 !important; padding: .4rem .6rem !important; vertical-align: middle !important; }
+.x-orders thead th { padding-block: .3rem !important; }
+.x-col-check { width: 2.8rem; }
+.x-col-qty { width: 3.8rem; }
+.x-col-price { width: 6.2rem; }
+.x-col-req { width: 9.5rem; }
+.x-col-status { width: 7.2rem; }
+.x-orders tbody:last-child tr:last-child > * { border-bottom: 0; }
+.x-vendor-row th,.x-vendor-row td { background: var(--ui-surface-subtle); }
+.x-orders th.x-vendor-cell { font-size: .95rem; }
+.x-orders td:first-child { padding: 0 !important; }
+.x-vendor-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); font-weight: 800; color: var(--ui-text); }
+.x-vendor-heading small { color: var(--ui-text-muted); font-weight: 400; font-size: .8125rem; margin-left: auto; }
+.x-row-check { display: grid; place-items: center; min-height: var(--control-min-block-size); cursor: pointer; }
+.app .x-row-check input:disabled { opacity: .45; cursor: not-allowed; }
+.x-order-item { font-weight: 700; color: var(--ui-text); }
+.x-order-sku { display: inline-block; margin-left: var(--space-2); color: var(--ui-text-muted); font-weight: 400; font-size: .8125rem; }
+.x-row-note { display: flex; align-items: baseline; gap: var(--space-2); margin-top: 2px; font-size: .8125rem; font-weight: 400; color: var(--ui-text-muted); line-height: 1.35; }
+.x-row-note[data-tone="warning"] { color: var(--ui-warning); }
+.x-row-note b { font-weight: 800; white-space: nowrap; }
+.x-status-pill.status-pill { min-height: 1.5rem; padding: 0 var(--space-2); }
+.x-method.status-pill { min-height: 1.5rem; padding: 0 var(--space-2); }
+.x-results { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--space-3); align-items: start; }
+.x-result-group { display: grid; gap: var(--space-1); margin-top: var(--space-2); }
+.x-result-group h3 { margin: 0; font-family: var(--font-body); font-size: .8125rem; font-weight: 800; letter-spacing: normal; color: var(--ui-text-muted); }
+.x-result-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.x-result-group li { display: grid; grid-template-columns: 1.25rem minmax(0,1fr); gap: var(--space-2); font-size: .875rem; line-height: 1.35; align-items: baseline; }
+.x-result-group small { display: block; color: var(--ui-text-muted); font-size: .8125rem; }
+.x-result-counts { margin-top: var(--space-2); }
+.x-result-action { margin-top: var(--space-3); }
+.x-result-stop { margin: var(--space-2) 0 0; }
+.x-mark { font-weight: 800; text-align: center; }
+.x-mark[data-tone="success"] { color: var(--ui-success); }
+.x-mark[data-tone="warning"] { color: var(--ui-warning); }
+.x-mark[data-tone="error"] { color: var(--ui-error); }
+.x-store-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--space-1) var(--space-5); margin: 0; padding: 0; list-style: none; }
+.x-store-grid li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-1) 0; border-bottom: 1px solid var(--ui-border); font-size: var(--text-small); }
+.x-store-grid .status-pill { min-height: 1.5rem; padding: 0 var(--space-2); }
+/* The owner's notice comes first on every Carts screen, and is meant to be read. */
+.x-carts-title { margin: 0; font-size: 2.15rem; }
+.x-carts-notice { color: var(--ui-text); font-size: var(--text-body); border-color: var(--primary-edge); border-width: 2px; }
+.x-carts-notice strong { font-size: 1.05em; }
+.x-permission-text { margin: 0; font-size: var(--text-small); }
+@media (max-width: 900px) {
+  .x-results,.x-store-grid { grid-template-columns: minmax(0,1fr); }
+  .x-col-req,.x-orders .x-td-req { display: none; }
+}
+
 /* Extension additions to the approved mockup's rules: the page shell, default colors, and states the mockup doesn't draw. */
 [hidden] { display: none !important; }
 /* Chrome gives extension pages its own body font and 75% size, which would shrink everything that inherits. */

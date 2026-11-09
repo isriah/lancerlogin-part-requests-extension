@@ -48,6 +48,10 @@ Express addition is off by default and lives in Options, on this device only. Un
 
 Express addition sends a NORMAL request with no click, so a team that wants a person to look at every request should leave it off. An Admin can't currently turn it off for a whole team.
 
+## Carts
+
+Off by default, per device. Turning it on asks Chrome for the stores that are built, and turning it off gives that access back. An Admin can turn it off for everyone on the plugin's Status page, which hides it here. All paired devices can read the team's open orders, requester names and prices. The extension sends the plugin only an order's ID and quantity for carts it confirmed, and never sends store cookies or the rest of a cart. See [Carts](CARTS.md).
+
 ## Troubleshooting
 
 | Message or behavior | What to do |

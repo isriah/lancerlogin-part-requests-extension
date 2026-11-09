@@ -1,4 +1,5 @@
 import type { Brand, Theme } from './brand';
+import type { MarkInput } from './carts/types';
 
 export type RequestStatus = 'NORMAL Request' | 'Incomplete Request';
 export interface AdapterConfig {
@@ -36,6 +37,8 @@ export interface DeviceOptions {
   minimumExtensionVersion?: string | null;
   updateUrl?: string | null;
   databaseLink?: string | null;
+  /** The Admin's Carts switch. False hides Carts. Absent from an earlier plugin. */
+  cartsEnabled?: boolean;
 }
 /** A recent request for the same product, as the plugin reports it. */
 export interface Repeat { memberName: string; createdMs: number; pageUrl: string | null; state: string }
@@ -96,6 +99,8 @@ export interface SettingsView {
   /** Optional so older callers and tests read as dark. */
   theme?: Theme;
   expressEnabled?: boolean;
+  /** This device's Carts switch, off until someone turns it on. */
+  cartsEnabled?: boolean;
 }
 /** What Unpair answers. `revokedOnSite` is true only when the site confirmed it, so the page knows what to say. */
 export interface UnpairView extends SettingsView { revokedOnSite: boolean }
@@ -108,6 +113,9 @@ export type Message =
   | { type: 'refresh-options' }
   | { type: 'set-theme'; theme: Theme }
   | { type: 'set-express'; enabled: boolean }
+  | { type: 'set-carts'; enabled: boolean }
+  | { type: 'carts-orders'; refresh?: boolean }
+  | { type: 'carts-marks'; marks: MarkInput[] }
   | { type: 'save-defaults'; defaultTeam: string; defaultRecipient: string }
   | { type: 'check-repeats'; url: string; sku: string }
   | { type: 'save-draft'; record: DraftRecord }

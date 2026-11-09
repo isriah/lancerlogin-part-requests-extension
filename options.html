@@ -49,7 +49,9 @@
       <div class="x-card-head"><h2>Settings</h2></div>
       <div class="x-card-body x-card-body-tight">
         <label class="x-setting"><strong>Express addition</strong><span class="x-switch-wrap"><input id="express-enabled" type="checkbox" role="switch" disabled></span><span class="x-help">Click the toolbar icon and the request is sent right away when everything was filled in from the page. If anything needs checking, you get the form with the reason instead. A sent request can only be changed in Notion.</span></label>
-        <p id="settings-unpaired" class="x-help">Pair this device to turn this on.</p>
+        <label id="carts-setting" class="x-setting"><strong>Carts</strong><span class="x-switch-wrap"><input id="carts-enabled" type="checkbox" role="switch" disabled></span><span class="x-help">Adds a Carts page that lists your team's open orders by store and fills store carts in this browser, after you click Build carts. It never checks out or pays. Chrome asks for access to the stores when you turn this on.</span></label>
+        <div id="carts-open-row" class="x-actions" hidden><button id="carts-open" class="ui-button" type="button">Open Carts</button></div>
+        <p id="settings-unpaired" class="x-help">Pair this device to turn these on.</p>
       </div>
     </section>
   </main>

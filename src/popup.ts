@@ -37,6 +37,8 @@ function fillChoices(team: string, recipient: string): void {
 function showPairing(): void {
   applyAppearance(settings);
   showUpdateNotice(settings.options);
+  // Shows only when this device turned Carts on and the Admin hasn't turned it off.
+  el('carts').hidden = !(isPaired() && settings.cartsEnabled === true && settings.options?.cartsEnabled !== false);
   el('setup').hidden = isPaired();
   el('setup').dataset.tone = settings.pairing === 'expired' ? 'error' : 'neutral';
   el('setup-title').textContent = settings.pairing === 'expired' ? 'Pair this device again' : 'Pair this device to send requests';
@@ -269,6 +271,7 @@ el('retry').addEventListener('click', async () => {
   } catch (error) { notice(errorText(error), 'error'); }
 });
 for (const id of ['settings', 'connect']) el(id).addEventListener('click', () => { void chrome.runtime.openOptionsPage(); });
+el('carts').addEventListener('click', () => { void chrome.tabs.create({ url: chrome.runtime.getURL('carts.html') }); });
 el('express-off').addEventListener('click', event => { event.preventDefault(); void chrome.runtime.openOptionsPage(); });
 for (const vendor of VENDORS) { const li = document.createElement('li'); li.textContent = vendor.label; el('vendor-list').append(li); }
 /** Opens from the cached lists, then brings them up to date. Choices made meanwhile are kept. */

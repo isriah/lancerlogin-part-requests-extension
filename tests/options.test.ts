@@ -14,9 +14,40 @@ beforeEach(()=>{
   vi.resetModules();view=unpaired();request=vi.fn(async()=>true);
   document.body.innerHTML=readFileSync(resolve('options.html'),'utf8').match(/<body[^>]*>([\s\S]*)<\/body>/)![1];
   send=vi.fn(async(m:Message)=>({ok:true,data:m.type==='pair'||m.type==='unpair'?(view=m.type==='pair'?paired():unpaired()):view}));
-  vi.stubGlobal('chrome',{runtime:{id:'extension',sendMessage:send,getManifest:()=>({version:'9.9.9',optional_host_permissions:['https://*/*']})},permissions:{request}});
+  vi.stubGlobal('chrome',{runtime:{id:'extension',sendMessage:send,getManifest:()=>({version:'9.9.9',optional_host_permissions:['https://*/*']})},permissions:{request,remove:vi.fn(async()=>true)},tabs:{create:vi.fn()}});
 });
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
+describe('the Carts switch',()=>{
+  const flip=()=>{const box=input('carts-enabled');box.checked=!box.checked;box.dispatchEvent(new Event('change',{bubbles:true}));};
+  const storeOrigins=['https://www.mcmaster.com/*','https://www.pololu.com/*','https://www.revrobotics.com/*','https://wcproducts.com/*'];
+  it('is off and disabled until paired',async()=>{await open();expect(input('carts-enabled').checked).toBe(false);expect(input('carts-enabled').disabled).toBe(true);});
+  it('is off by default once paired, with no Open Carts',async()=>{view=paired();await open();expect(input('carts-enabled').checked).toBe(false);expect(input('carts-enabled').disabled).toBe(false);expect(input('carts-open-row').hidden).toBe(true);});
+  it('asks Chrome for the stores during the click, before anything else',async()=>{
+    view=paired();await open();send.mockClear();
+    flip();
+    expect(request).toHaveBeenCalledWith({origins:storeOrigins}); // Synchronously: Chrome refuses without the click's user gesture.
+    expect(send).not.toHaveBeenCalled();
+    view={...paired(),cartsEnabled:true};
+    await vi.waitFor(()=>expect(send).toHaveBeenCalledWith({type:'set-carts',enabled:true}));
+    await vi.waitFor(()=>expect(text('notice')).toMatch(/Carts is on/));
+    expect(input('carts-open-row').hidden).toBe(false);
+  });
+  it('a denied prompt still turns it on, as a checklist',async()=>{
+    view=paired();await open();request.mockResolvedValue(false);view={...paired(),cartsEnabled:true};
+    flip();
+    await vi.waitFor(()=>expect(text('notice')).toMatch(/without store access/));
+  });
+  it('turning it off gives the access back, and asks for nothing',async()=>{
+    view={...paired(),cartsEnabled:true};await open();
+    view=paired();flip();
+    await vi.waitFor(()=>expect(chrome.permissions.remove).toHaveBeenCalledWith({origins:storeOrigins}));
+    expect(request).not.toHaveBeenCalled();
+  });
+  it('an Admin turning it off hides it',async()=>{
+    view={...paired(),options:{...deviceOptions(),cartsEnabled:false},cartsEnabled:true};await open();
+    expect(input('carts-setting').hidden).toBe(true);expect(input('carts-open-row').hidden).toBe(true);
+  });
+});
 describe('pairing screen',()=>{
   it('says where PINs come from and shows the version',async()=>{await open();expect(text('pair-form')).toContain('/ordering-pin');expect(text('pair-form')).toContain('Discord');expect(text('version')).toBe('9.9.9');});
   it('has no token, database or guest import fields left',()=>{for(const id of ['token','database-url','data-source','import-form','request-url'])expect(document.getElementById(id)).toBeNull();});

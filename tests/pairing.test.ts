@@ -36,7 +36,7 @@ describe('what ships',()=>{
   });
   it('has one version everywhere',()=>expect(manifest.version).toBe(JSON.parse(readFileSync(resolve('package.json'),'utf8')).version));
   it('has no Notion client, token or database setting left in the code or pages',()=>{
-    const files=[...readdirSync('src').map(name=>join('src',name)),'popup.html','options.html'];
+    const files=[...readdirSync('src',{recursive:true,encoding:'utf8'}).map(name=>join('src',name)).filter(name=>/[.](ts|css)$/.test(name)),'popup.html','options.html'];
     for(const file of files) expect(readFileSync(file,'utf8'),file).not.toMatch(/api\.notion\.com|Notion-Version|data_source|databaseUrl|import-people|notion_version/i);
   });
   it('fetches only from the service worker side: pages never call the network',()=>{
