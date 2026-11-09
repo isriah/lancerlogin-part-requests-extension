@@ -1,63 +1,82 @@
 import './styles.css';
+import { manifestAllowsLocalHttp, normalizePin, normalizeSiteAddress, originPattern } from './pairing';
 import { VENDORS } from './vendors';
-import type { Configuration } from './types';
+import type { SettingsView } from './types';
 import { choices, el, errorText, notice, send, UiError } from './ui';
 
-interface RecipientResult { config: Configuration; recipientSummary: string; recipientLookupFailed: boolean }
-let config: Configuration | undefined;
-const token = el<HTMLInputElement>('token');
-const database = el<HTMLInputElement>('database-url');
-const source = el<HTMLSelectElement>('data-source');
+let settings: SettingsView = { pairing: 'unpaired', defaultTeam: '' };
+const address = el<HTMLInputElement>('site-address');
+const pin = el<HTMLInputElement>('pin');
+const label = el<HTMLInputElement>('device-label');
 for (const vendor of VENDORS) { const li = document.createElement('li'); li.textContent = vendor.label; el('vendor-list').append(li); }
+el('version').textContent = globalThis.chrome?.runtime?.getManifest?.().version ?? '';
+
 function render(): void {
-  el('defaults-card').hidden = !config;
-  el('disconnect').hidden = !config;
-  el('connection-state').textContent = config ? 'CONNECTED' : 'NOT CONNECTED';
-  if (!config) return;
-  database.value = config.databaseUrl;
-  token.placeholder = 'Token saved. Leave blank to keep it.';
-  choices(el('default-team'), config.schema.properties.team.options || [], config.defaultTeam, 'Choose your team');
-  choices(el('default-recipient'), config.people, config.defaultRecipient, 'Choose yourself');
+  const isPaired = settings.pairing === 'paired';
+  el('pair-form').hidden = isPaired;
+  el('paired-card').hidden = !isPaired;
+  el('defaults-card').hidden = !isPaired || !settings.options;
+  el('capture-step').textContent = el('defaults-card').hidden ? '02' : '03';
+  el('pairing-state').textContent = isPaired ? 'PAIRED' : settings.pairing === 'expired' ? 'PAIR AGAIN' : 'NOT PAIRED';
+  if (settings.origin && !address.value) address.value = settings.origin;
+  if (settings.deviceLabel && !label.value) label.value = settings.deviceLabel;
+  if (!isPaired) return;
+  el('paired-member').textContent = settings.memberName || settings.options?.memberName || 'Team member';
+  el('paired-origin').textContent = settings.origin || '';
+  el('paired-label').textContent = settings.deviceLabel || 'Browser extension';
+  if (!settings.options) return;
+  choices(el('default-team'), settings.options.teams, el<HTMLSelectElement>('default-team').value || settings.defaultTeam, 'Choose your team');
+  choices(el('default-recipient'), settings.options.recipients, el<HTMLSelectElement>('default-recipient').value || settings.options.defaultRecipientId || '', 'Choose your name');
+  el('recipients-state').textContent = settings.options.recipients.length ? 'Missing your name? Ask an Admin to refresh the recipient list.' : 'The recipient list is still empty. It refreshes on its own every few hours, or an Admin can refresh it now.';
 }
-el<HTMLFormElement>('connection-form').addEventListener('submit', async event => {
-  event.preventDefault(); const button = el<HTMLButtonElement>('test-connection'); button.disabled = true; notice('Checking the database and its fields...');
-  try {
-    const result = await send<RecipientResult>({ type: 'connect', token: token.value, databaseUrl: database.value, dataSourceId: source.value || undefined });
-    config = result.config;
-    token.value = ''; el('source-row').hidden = true; render(); notice(`Connected. ${result.recipientSummary} Choose your default team and recipient below.`, result.recipientLookupFailed ? 'error' : 'success');
-  } catch (error) {
-    notice(errorText(error), 'error');
-    if (error instanceof UiError && error.code === 'data_source' && Array.isArray(error.details)) {
-      choices(source, error.details, '', 'Choose the ordering data source'); el('source-row').hidden = false;
-    }
-  } finally { button.disabled = false; }
+el<HTMLFormElement>('pair-form').addEventListener('submit', event => {
+  event.preventDefault();
+  let origin: string; let code: string;
+  try { origin = normalizeSiteAddress(address.value, manifestAllowsLocalHttp(chrome.runtime.getManifest())); code = normalizePin(pin.value); }
+  catch (error) { notice(errorText(error), 'error'); return; }
+  const button = el<HTMLButtonElement>('pair');
+  // Chrome only shows the prompt during this click, so nothing may be awaited before this request.
+  const asked = chrome.permissions.request({ origins: [originPattern(origin)] });
+  button.disabled = true;
+  notice(`Asking Chrome for permission to reach ${origin}...`);
+  void asked.then(async granted => {
+    if (!granted) { notice(`You chose Deny, so Chrome did not give this extension access to ${origin}. Nothing was paired and your PIN was not used. Click Pair this device again and choose Allow.`, 'error'); return; }
+    notice('Pairing...');
+    settings = await send<SettingsView>({ type: 'pair', origin, pin: code, deviceLabel: label.value });
+    pin.value = ''; render();
+    notice(`Paired as ${settings.memberName || 'a team member'}. Choose your defaults, then open a product page and click the extension.`, 'success');
+    if (!settings.options) await refresh();
+  }).catch(error => notice(errorText(error), 'error')).finally(() => { button.disabled = false; });
 });
-database.addEventListener('input', () => { source.replaceChildren(); el('source-row').hidden = true; });
 el<HTMLFormElement>('defaults-form').addEventListener('submit', async event => {
   event.preventDefault();
-  try { config = await send<Configuration>({ type: 'save-settings', defaultTeam: el<HTMLSelectElement>('default-team').value, defaultRecipient: el<HTMLSelectElement>('default-recipient').value }); render(); notice('Defaults saved. Open a product page and click the extension.', 'success'); }
-  catch (error) { notice(errorText(error), 'error'); }
-});
-el<HTMLFormElement>('import-form').addEventListener('submit', async event => {
-  event.preventDefault(); const button = el<HTMLButtonElement>('import'); button.disabled = true;
   try {
-    const result = await send<{ config: Configuration; imported: { name: string }[] }>({ type: 'import-people', pageUrl: el<HTMLInputElement>('request-url').value });
-    config = result.config; render(); notice(`Found ${result.imported.map(p => p.name).join(', ')}. Choose the right person and save your defaults.`, 'success');
-  } catch (error) { notice(errorText(error), 'error'); } finally { button.disabled = false; }
+    settings = await send<SettingsView>({ type: 'save-defaults', defaultTeam: el<HTMLSelectElement>('default-team').value, defaultRecipient: el<HTMLSelectElement>('default-recipient').value });
+    render(); notice('Defaults saved. Open a product page and click the extension.', 'success');
+  } catch (error) { await expiredCheck(error); }
 });
-el('disconnect').addEventListener('click', async () => { try { await send({ type: 'disconnect' }); config = undefined; token.value = ''; token.placeholder = 'Enter the coach-created token'; render(); notice('Disconnected. The token was removed from this extension. Revoke it in Notion if it is no longer needed.'); } catch (error) { notice(errorText(error), 'error'); } });
-// Keep the recipient list current without a button. Choices made while this runs are preserved.
-async function refreshRecipients(): Promise<void> {
-  const result = await send<RecipientResult>({ type: 'refresh-people' });
-  if (!result.config) return;
-  const team = el<HTMLSelectElement>('default-team').value;
-  const recipient = el<HTMLSelectElement>('default-recipient').value;
-  config = result.config; render();
-  if (team) el<HTMLSelectElement>('default-team').value = team;
-  if (recipient) el<HTMLSelectElement>('default-recipient').value = recipient;
-  if (result.recipientSummary && (result.recipientLookupFailed || !el('notice').textContent)) notice(result.recipientSummary, result.recipientLookupFailed ? 'error' : '');
+el('unpair').addEventListener('click', async () => {
+  if (!confirm('Unpair this device? This only forgets the key on this computer. To pair again you need a new PIN from /ordering-pin. Drafts are kept.')) return;
+  try {
+    settings = await send<SettingsView>({ type: 'unpair' });
+    address.value = ''; label.value = ''; render();
+    notice('Unpaired. This computer no longer has the key. It stays on your team\'s device list until an Admin removes it.');
+  } catch (error) { notice(errorText(error), 'error'); }
+});
+async function expiredCheck(error: unknown): Promise<void> {
+  notice(errorText(error), 'error');
+  if (error instanceof UiError && error.code === 'pair_again') {
+    settings = await send<SettingsView>({ type: 'settings' }); render();
+    notice('This device is no longer paired. It may have been removed by an Admin, or you may have left the roster. Run /ordering-pin in Discord and pair it again. Your drafts are kept.', 'error');
+  }
 }
-send<{ config?: Configuration }>({ type: 'settings' }).then(async result => {
-  config = result.config; render();
-  if (config) await refreshRecipients();
+/** Keep the lists current without a button. Choices made while this runs are preserved. */
+async function refresh(): Promise<void> {
+  try { settings = await send<SettingsView>({ type: 'refresh-options' }); render(); }
+  catch (error) { await expiredCheck(error); }
+}
+send<SettingsView>({ type: 'settings' }).then(async value => {
+  settings = value; render();
+  if (settings.pairing === 'paired') await refresh();
+  else if (settings.pairing === 'expired') notice('This device is no longer paired. Run /ordering-pin in Discord and pair it again. Your drafts are kept.', 'error');
 }).catch(error => notice(errorText(error)));

@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Robotics Part Requests",
-  "version": "0.1.0",
-  "description": "Review a product from your team's supported stores and send a part request to Notion.",
+  "version": "0.2.0",
+  "description": "Review a product from your team's supported stores and send a part request through your team's LancerLogin site.",
   "minimum_chrome_version": "120",
   "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["https://api.notion.com/*"],
+  "optional_host_permissions": ["https://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "Request this part" },
   "options_page": "options.html",
-  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://api.notion.com" }
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; connect-src https:" }
 }

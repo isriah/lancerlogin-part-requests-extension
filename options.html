@@ -1,25 +1,31 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Part Requests - Settings</title></head>
 <body class="options">
-  <header class="masthead"><div class="brand-mark" aria-hidden="true">↗</div><div><p class="eyebrow">ROBOTICS / PROCUREMENT</p><h1>Connect your ordering desk</h1></div><span class="badge">PERSONAL PILOT</span></header>
+  <header class="masthead"><div class="brand-mark" aria-hidden="true">↗</div><div><p class="eyebrow">ROBOTICS / PROCUREMENT</p><h1>Pair this browser with your team</h1></div><span class="badge">STUDENT DEVICE</span></header>
   <main>
     <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
     <div class="columns">
-    <section class="card"><div class="section-heading"><h2><span class="step">01</span> Connect Notion</h2><span id="connection-state" class="badge">NOT CONNECTED</span></div>
-      <details><summary>Instructions for the workspace owner</summary><ol><li>Create an internal connection in Notion's developer portal for the team's workspace.</li><li>Enable Read content, Insert content, and Read user information without email addresses.</li><li>Add the connection to the original ordering database using its Connections menu.</li><li>Enter the connection token below on this computer. Use a test copy of the database for first-run checks.</li></ol><p>Guests can use this owner-created connection. The connection creates requests; the Orderer/Recipient field identifies the requester.</p><a href="https://developers.notion.com/guides/get-started/authorization" target="_blank" rel="noopener noreferrer">Notion setup documentation ↗</a></details>
-      <form id="connection-form"><label for="token">Connection token</label><input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="Enter the coach-created token"><p class="field-help">Stored on this computer only. Never synced. Local extension storage is not an encrypted credential vault.</p>
-        <label for="database-url">Ordering database URL</label><input id="database-url" type="url" required spellcheck="false">
-        <div id="source-row" hidden><label for="data-source">Data source</label><select id="data-source"></select></div>
-        <div class="actions"><button id="disconnect" type="button" class="quiet" hidden>Disconnect</button><button id="test-connection" class="primary" type="submit">Test connection and save</button></div><p class="footnote">Checks access and schema. Does not create or modify Notion pages.</p>
+    <section class="card"><div class="section-heading"><h2><span class="step">01</span> Pair this device</h2><span id="pairing-state" class="badge">NOT PAIRED</span></div>
+      <form id="pair-form">
+        <p class="pair-note">PINs come from <code>/ordering-pin</code> in Discord. Run it in your team's server. The private reply gives you the site address and a PIN that works once and expires in 10 minutes.</p>
+        <label for="site-address">Site address</label><input id="site-address" autocomplete="off" spellcheck="false" placeholder="https://your-team-site.example">
+        <div class="grid"><div><label for="pin">PIN</label><input id="pin" autocomplete="off" spellcheck="false" placeholder="K7M2-9QXP" maxlength="32"></div><div><label for="device-label">Device name <span class="optional">optional</span></label><input id="device-label" autocomplete="off" maxlength="60" placeholder="Shop laptop"></div></div>
+        <p class="field-help">Chrome asks you to allow this one site. Choose Allow. The device name helps your team's Admin tell your devices apart.</p>
+        <div class="actions"><span></span><button id="pair" class="primary" type="submit">Pair this device</button></div>
       </form>
+      <div id="paired-card" hidden>
+        <dl class="paired-facts"><dt>Paired as</dt><dd id="paired-member"></dd><dt>Site</dt><dd id="paired-origin"></dd><dt>Device</dt><dd id="paired-label"></dd></dl>
+        <div class="actions"><button id="unpair" type="button" class="secondary">Unpair this device</button></div>
+        <p class="field-help">Unpairing only forgets the key on this computer. It does not end the key on the site, and the device still counts toward your limit of 5 until an Admin removes it. Drafts here are kept.</p>
+      </div>
     </section>
     <div class="column-stack">
-    <section id="defaults-card" class="card" hidden><h2><span class="step">02</span> Your defaults</h2><form id="defaults-form"><div class="grid"><div><label for="default-team">Team</label><select id="default-team" required></select></div><div><label for="default-recipient">Orderer / recipient</label><select id="default-recipient" required></select></div></div><p class="field-help">You can change these on each request. Quantity starts at 1 and status at NORMAL Request.</p><button class="primary" type="submit">Save defaults</button></form>
-      <details><summary>Missing your name? Import a guest.</summary><p>Copy the URL of a request that already has the right person in Orderer/Recipient. It must belong to this ordering database.</p><form id="import-form"><label for="request-url">Existing request URL</label><input id="request-url" type="url" required placeholder="https://www.notion.so/..."><button id="import" class="secondary" type="submit">Find recipients in request</button></form><p class="field-help">If no request exists yet, create one in Notion and set its recipient first. Workspace user lists do not include guests.</p></details>
+    <section id="defaults-card" class="card" hidden><h2><span class="step">02</span> Your defaults</h2><form id="defaults-form"><div class="grid"><div><label for="default-team">Team</label><select id="default-team" required></select></div><div><label for="default-recipient">Your Notion name</label><select id="default-recipient" required></select></div></div><p class="field-help">You can change these on each request. Your name is saved with your team's site, so other devices you pair start with it.</p><button class="primary" type="submit">Save defaults</button></form>
+      <p id="recipients-state" class="footnote"></p>
     </section>
-    <section class="card"><h2><span class="step">03</span> Capture from 20 stores</h2><p>Open one product, choose its options, and click the extension. Review all captured values before creating the request.</p><details><summary>Supported stores and limits</summary><ul id="vendor-list" class="vendor-list"></ul><p class="field-help">Other stores, cart pages, and bulk capture are outside this pilot. Product prices and SKUs may need manual correction.</p></details></section>
+    <section class="card"><h2><span id="capture-step" class="step">03</span> Capture from 20 stores</h2><p>Open one product, choose its options, and click the extension. Review all captured values before creating the request.</p><details><summary>Supported stores and limits</summary><ul id="vendor-list" class="vendor-list"></ul><p class="field-help">Other stores, cart pages, and bulk capture are not supported. Product prices and SKUs may need manual correction.</p></details></section>
     </div>
     </div>
-    <footer>Part Requests · v0.1.0 · Local settings, direct connection to Notion</footer>
+    <footer>Part Requests · v<span id="version"></span> · Sends through your team's LancerLogin site</footer>
   </main><script type="module" src="/src/options.ts"></script>
 </body></html>

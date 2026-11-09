@@ -69,3 +69,19 @@
 .popup .notice{padding:6px 12px;margin-bottom:6px}
 .popup .field-help{margin:4px 0}
 .popup .check{margin:4px 0}
+
+/* Pairing, the pair-again banner and the repeat warning. */
+.popup .setup-banner{display:flex;align-items:center;gap:12px;padding:6px 12px;margin-bottom:6px;line-height:1.3}
+.popup .setup-banner strong{font-size:12px}
+.popup .setup-banner p{margin:0;font-size:11px}
+.popup .setup-banner .secondary{margin:0 0 0 auto;padding:4px 10px;white-space:nowrap;font-size:12px}
+.repeat-warning{font-size:11px;line-height:1.3;color:#795520;padding:6px 10px;border-radius:6px;background:#fff6e3;margin:0 0 4px;max-height:44px;overflow-y:auto}
+.pair-note{padding:9px 12px;background:#e7eee9;border-radius:8px;font-size:12px;color:var(--ink);margin:0 0 4px}
+.options .card p.pair-note{color:var(--ink);font-size:12px}
+.pair-note code{font:600 12px ui-monospace,monospace}
+.paired-facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;font-size:13px;margin:0}
+.paired-facts dt{color:var(--muted)}
+.paired-facts dd{margin:0;overflow-wrap:anywhere}
+/* The repeat warning takes the help line's place, so the form still fits with every warning showing. */
+.popup:has(#repeat-warning:not([hidden])) #request-form>.field-help{display:none}
+.popup:has(#repeat-warning:not([hidden])) #request-form>.hints,.popup:has(#repeat-warning:not([hidden])) #request-form>.validation{max-height:48px}

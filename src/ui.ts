@@ -3,7 +3,7 @@ export class UiError extends Error {
   constructor(message: string, public code?: string, public details?: unknown) { super(message); }
 }
 export async function send<T>(message: Message): Promise<T> {
-  if (!globalThis.chrome?.runtime?.id) throw new UiError('Load the dist folder as an unpacked Chrome extension to connect and capture products.');
+  if (!globalThis.chrome?.runtime?.id) throw new UiError('Load the dist folder as an unpacked Chrome extension to pair and capture products.');
   const response = await chrome.runtime.sendMessage(message);
   if (!response?.ok) throw new UiError(response?.error || 'The extension did not respond. Reopen it to check the saved result.', response?.code, response?.details);
   return response.data;
