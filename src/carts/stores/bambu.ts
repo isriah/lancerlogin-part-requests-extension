@@ -158,9 +158,11 @@ export async function bambuAddOnPage(id: string, key: string, quantity: number, 
     // In a window under about 1000px wide, Add to Cart is on a bottom bar and every main box is hidden, with more than one of them. Only the one in the button's own form is its box.
     const addForm = adds[0]?.form;
     const hidden = !boxes.length && addForm ? mains.filter(node => node.form === addForm) : [];
-    const main = boxes.length ? boxes[0] : hidden.length === 1 ? hidden[0] : undefined;
+    // As seen on the real page, the bar's button has no form at all. Then no box can be called its own, so a quantity can't be set, but 1 needs no setting when every copy already says 1.
+    const formless = !boxes.length && adds.length === 1 && !addForm;
+    const main = boxes.length ? boxes[0] : hidden.length === 1 ? hidden[0] : formless && quantity === 1 && mains.length > 0 && mains.every(node => node.value === '1') ? mains[0] : undefined;
     if (adds.length === 1 && main && (!many || summary().length > 0)) { add = adds[0]; box = main; break; }
-    if (late()) return notSent(!adds.length ? 'The product page didn\'t offer Add to Cart for this option.' : !main ? 'The product page shows Add to Cart without one clear quantity box for it, so nothing was added.' : 'The product page doesn\'t show which option is selected, so nothing was added.');
+    if (late()) return notSent(!adds.length ? 'The product page didn\'t offer Add to Cart for this option.' : formless && quantity !== 1 ? `BambuLab hides its quantity box when the Chrome window is narrow, so a quantity of ${quantity} wasn't added. Make the window wider and build again.` : !main ? 'The product page shows Add to Cart without one clear quantity box for it, so nothing was added.' : 'The product page doesn\'t show which option is selected, so nothing was added.');
     await wait(250);
   }
   if (add.disabled || add.closest('a')) return notSent('The product page\'s Add to Cart isn\'t available for this option.');

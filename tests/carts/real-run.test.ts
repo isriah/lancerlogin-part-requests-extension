@@ -370,6 +370,32 @@ describe('6. BambuLab in a narrow window', () => {
     expect(sent).toEqual([1]);
     expect(buy).not.toHaveBeenCalled();
   });
+  describe('as on the real page, where the bar\'s button has no form', () => {
+    const formless = (first = '1', second = '1') => `${ld}<a href="/cart" id="count"></a>${summary()}${main('box-a', first)}${main('box-b', second)}${BAR}`;
+    const press = () => { const sent = vi.fn(), buy = vi.fn(); document.getElementById('add')!.addEventListener('click', () => { sent(); document.getElementById('count')!.textContent = '1'; }); document.getElementById('buy')!.addEventListener('click', buy); return { sent, buy }; };
+    it('quantity 1 presses Add to Cart, with every hidden copy already at 1', async () => {
+      document.body.innerHTML = formless();
+      const { sent, buy } = press();
+      expect(await bambuAddOnPage(ID, KEY, 1, 1000)).toEqual({ kind: 'sent', cartRose: true });
+      expect(sent).toHaveBeenCalledOnce();
+      expect(buy).not.toHaveBeenCalled();
+    });
+    it('another quantity is refused, says to widen the window, and changes no box', async () => {
+      document.body.innerHTML = formless();
+      const { sent, buy } = press();
+      const answer = await bambuAddOnPage(ID, KEY, 3, 300);
+      expect(answer).toMatchObject({ kind: 'refused', message: expect.stringMatching(/narrow.*quantity of 3.*wider/i) });
+      expect(sent).not.toHaveBeenCalled();
+      expect(buy).not.toHaveBeenCalled();
+      expect((document.getElementById('box-a') as HTMLInputElement).value).toBe('1');
+    });
+    it('quantity 1 is refused when a hidden copy says something else', async () => {
+      document.body.innerHTML = formless('1', '2');
+      const { sent } = press();
+      expect(await bambuAddOnPage(ID, KEY, 1, 300)).toMatchObject({ kind: 'refused' });
+      expect(sent).not.toHaveBeenCalled();
+    });
+  });
   it('another quantity goes in the hidden box of the button\'s form, and no other', async () => {
     document.body.innerHTML = narrow();
     const { sent, buy } = wire();
