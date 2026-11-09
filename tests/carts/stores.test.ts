@@ -1,14 +1,16 @@
 // The functions that run in a store's tab, against synthetic pages and answers. No real store is contacted.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { inspectPage } from '../../src/carts/page-check';
+import { allStoreOrigins, STORES } from '../../src/carts/registry';
 import { LineProblem } from '../../src/carts/store-method';
 import { mcmasterPart, mcmasterPasteLine, mcmasterReadCart } from '../../src/carts/stores/mcmaster';
 import { pololuNumber, pololuReadCart, pololuSubmitQuickAdd, pololu } from '../../src/carts/stores/pololu';
 import { addLink, revAddMessage, revReadCart, rev } from '../../src/carts/stores/rev';
 import { chooseVariant, shopifyAddLine, shopifyLink, shopifyReadCart, shopifyReadProduct } from '../../src/carts/stores/shopify';
 import { wcp } from '../../src/carts/stores/wcp';
+import { VENDORS } from '../../src/vendors';
 import { hereTab, order } from './helpers';
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
@@ -191,7 +193,7 @@ describe('walls', () => {
     expect(inspectPage()).toMatchObject({ kind: 'stop', reason: 'login' });
     delete (document.body as unknown as Record<string, unknown>).innerText;
   });
-  it.each(['Just a moment...', 'Attention Required! | Cloudflare', 'Access Denied', 'Robot Check'])('the title "%s" is a bot check', title => {
+  it.each(['Just a moment...', 'Attention Required! | Cloudflare', 'Access Denied', 'Access to this page has been denied', 'Robot Check'])('the title "%s" is a bot check', title => {
     document.title = title;
     expect(inspectPage()).toMatchObject({ kind: 'stop', reason: 'bot-check' });
   });
@@ -200,7 +202,20 @@ describe('walls', () => {
     document.body.innerHTML = '<iframe src="https://challenges.cloudflare.com/turnstile"></iframe>';
     expect(inspectPage()).toMatchObject({ kind: 'stop', reason: 'bot-check' });
   });
+  it('a visible punish frame is a bot check, and a hidden one isn\'t', () => {
+    document.body.innerHTML = '<iframe src="https://www.aliexpress.us/_____tmd_____/punish?x5secdata=test"></iframe>';
+    const frame = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ width: 0, height: 0 } as DOMRect);
+    expect(inspectPage()).toEqual({ kind: 'ok' });
+    frame.mockReturnValue({ width: 300, height: 200 } as DOMRect);
+    expect(inspectPage()).toMatchObject({ kind: 'stop', reason: 'bot-check' });
+    frame.mockRestore();
+  });
 });
+const CHECKED_STORE_FILES = [
+  'stores/aliexpress.ts', 'stores/amazon.ts', 'stores/ambrosia.ts', 'stores/andymark.ts', 'stores/bambu.ts', 'stores/checklist.ts', 'stores/ctre.ts',
+  'stores/ferrules.ts', 'stores/harborfreight.ts', 'stores/homedepot.ts', 'stores/mcmaster.ts', 'stores/onlinemetals.ts', 'stores/pololu.ts',
+  'stores/powerwerx.ts', 'stores/rev.ts', 'stores/sds.ts', 'stores/shopify.ts', 'stores/swyft.ts', 'stores/thrifty.ts', 'stores/vbelts.ts', 'stores/wcp.ts', 'stores/west3d.ts',
+];
 describe('what ships', () => {
   const manifest = JSON.parse(readFileSync(resolve('public/manifest.json'), 'utf8'));
   it('asks for nothing new: no cookies, no web requests, no always-on store access', () => {
@@ -212,10 +227,29 @@ describe('what ships', () => {
     expect(readFileSync(resolve('src/background.ts'), 'utf8')).not.toMatch(/carts\/(registry|runner|chrome-tab|stores)|chrome\.tabs\.create/);
   });
   it('no code changes a user agent or names a false identity', () => {
-    for (const file of ['stores/shopify.ts', 'stores/rev.ts', 'stores/pololu.ts', 'stores/mcmaster.ts', 'chrome-tab.ts', 'page-check.ts', 'runner.ts']) {
+    for (const file of [...CHECKED_STORE_FILES, 'chrome-tab.ts', 'page-check.ts', 'runner.ts']) {
       const source = readFileSync(resolve('src/carts', file), 'utf8');
       expect(source, file).not.toMatch(/user-?agent|navigator\.webdriver|document\.cookie|chrome\.cookies/i);
     }
+  });
+  it('that check covers every store file', () => {
+    expect(readdirSync(resolve('src/carts/stores')).map(file => `stores/${file}`).sort()).toEqual([...CHECKED_STORE_FILES].sort());
+  });
+  it('every store is under the plugin\'s vendor label, on that vendor\'s hosts', () => {
+    expect(new Set(STORES.map(store => store.id)).size).toBe(STORES.length);
+    for (const store of STORES) {
+      const vendor = VENDORS.find(item => item.label === store.label);
+      expect(vendor, store.label).toBeDefined();
+      for (const host of store.hosts) expect(vendor!.hosts, `${store.label} ${host}`).toContain(host);
+    }
+  });
+  it('the live script grants every store origin, and refuses what the tab refuses', () => {
+    const live = readFileSync(resolve('e2e/carts.live.mjs'), 'utf8');
+    const listed = /const STORES = \[(.*)\];/.exec(live)![1];
+    for (const origin of allStoreOrigins()) expect(listed, origin).toContain(`'${origin}'`);
+    const never = (source: string) => /const NEVER = (\/.*\/i);/.exec(source)![1];
+    expect(never(live)).toBe(never(readFileSync(resolve('src/carts/safety.ts'), 'utf8')));
+    expect(live).toContain("const HARBOR_FREIGHT_CART = 'https://www.harborfreight.com/checkout/cart';");
   });
   it('the Carts page says the owner\'s notice word for word', () => {
     const html = readFileSync(resolve('carts.html'), 'utf8').replace(/<[^>]+>/g, '');

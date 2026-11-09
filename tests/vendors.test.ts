@@ -18,6 +18,15 @@ describe('20 vendor DOM fixtures', () => {
   });
   it('covers every registered vendor once', () => expect(fixtures.map(f=>f.id).sort()).toEqual(adapters.map(a=>a.config.id).sort()));
 });
+describe('Swyft kits', () => {
+  const kit = '<main><div class="space-y-6"><div><h1>Test Starter Kit</h1></div><span>SKU: SR-Kit-01</span><span class="font-price">$99.00</span></div></main>';
+  it('reads a product under /kits/, as the Carts store accepts it', () => {
+    expect(load('swyft', kit, 'https://swyftrobotics.com/kits/test-starter-kit')()).toMatchObject({ kind: 'product', description: 'Test Starter Kit', sku: 'SR-Kit-01', price: 99, url: 'https://swyftrobotics.com/kits/test-starter-kit' });
+  });
+  it('the kits list itself is not a product', () => {
+    expect(load('swyft', kit, 'https://swyftrobotics.com/kits')().kind).toBe('not-product');
+  });
+});
 describe('conservative capture', () => {
   it('does not use range minimum, default SKU or canonical URL for AndyMark', () => {
     const run=load('andymark','<h1>Robits Hex Shafts</h1><form action="/cart/add"><select name="id" class="variant-selection__variants"><option value="not-selected">Choose variant</option><option value="1">2 in.</option></select></form><div class="product__price"><span class="price__current">$5.30 - $11.00</span></div>'+product('Robits Hex Shafts','default-sku',5.3));

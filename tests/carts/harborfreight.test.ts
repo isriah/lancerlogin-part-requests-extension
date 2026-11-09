@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { inspectPage } from '../../src/carts/page-check';
 import { buildStore } from '../../src/carts/runner';
+import { allowedInTab, isForbiddenUrl } from '../../src/carts/safety';
 import { LineProblem, StoreStop, type StoreTab } from '../../src/carts/store-method';
 import { harborFreightPressAdd, harborFreightReadCart, harborFreightReadProduct, harborFreightSearch, harborFreightSku, harborfreight } from '../../src/carts/stores/harborfreight';
 import { order, options } from './helpers';
@@ -26,7 +27,7 @@ function fakeSite(config: { stock?: number; productExtra?: string; searchLandsOn
     async goto(url) {
       log.gotos.push(url);
       const parsed = new URL(url);
-      if (/checkout/i.test(parsed.pathname + parsed.search) && !(parsed.pathname === '/checkout/cart' && !parsed.search)) throw new StoreStop('unexpected', 'refused a checkout address');
+      if (isForbiddenUrl(url)) throw new StoreStop('unexpected', 'refused a checkout address');
       const path = parsed.pathname === '/search' ? (config.searchLandsOn ?? PRODUCT) : parsed.pathname;
       at(path);
       if (config.wallOn && path.includes(config.wallOn)) { document.title = 'Access to this page has been denied'; document.body.innerHTML = WALL; return; }
@@ -184,18 +185,56 @@ describe('pressing Add to Cart', () => {
     expect(await press()).toEqual({ kind: 'sent' });
     expect(checkout).not.toHaveBeenCalled();
   });
-  it('doesn\'t choose pickup or shipping for the person, even when one is already picked', async () => {
+  it('fails a required pickup or shipping choice with nothing selected, and chooses nothing', async () => {
     const clicked = vi.fn();
     for (const choice of [
       '<label><input type="radio" name="fulfillment" value="pickup">In-Store Pickup</label><label><input type="radio" name="fulfillment" value="ship">Ship to Home</label>',
-      '<label><input type="radio" name="fulfillment" value="ship" checked>Ship to Home</label>',
-      '<button aria-pressed="true">Ship to Home</button>',
+      '<button aria-pressed="false">Ship to Home</button>',
+      '<div role="radio" aria-checked="false">In-Store Pickup</div>',
+      '<div role="tab" aria-selected="false">Delivery</div>',
     ]) {
       document.body.innerHTML = product(choice);
       document.getElementById('add')!.addEventListener('click', clicked);
-      expect(await press()).toMatchObject({ kind: 'refused', message: expect.stringMatching(/pickup or shipping/) });
+      expect(await press()).toMatchObject({ kind: 'refused', message: expect.stringMatching(/pickup or shipping choice.*none is selected/) });
+      expect(document.querySelector('input[type="radio"]:checked')).toBeNull();
     }
     expect(clicked).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['a checked radio', '<label><input type="radio" name="fulfillment" value="pickup">In-Store Pickup</label><label><input type="radio" name="fulfillment" value="ship" checked>Ship to Home</label>'],
+    ['a pressed button', '<button aria-pressed="false">In-Store Pickup</button><button aria-pressed="true">Ship to Home</button>'],
+    ['a checked role', '<div role="radio" aria-checked="false">In-Store Pickup</div><div role="radio" aria-checked="true">Ship to Home</div>'],
+    ['a selected tab', '<div role="tab" aria-selected="false">In-Store Pickup</div><div role="tab" aria-selected="true">Ship to Home</div>'],
+  ])('keeps a choice already selected by %s, and names it', async (_name, choice) => {
+    document.body.innerHTML = product(choice);
+    const clicked = vi.fn(), asked = vi.fn();
+    document.getElementById('buy')!.addEventListener('click', event => { if ((event.target as Element).id !== 'add') clicked(); });
+    document.getElementById('add')!.addEventListener('click', asked);
+    const answer = await harborFreightPressAdd(SKU, 2, 0, 0);
+    expect(answer).toEqual({ kind: 'sent', kept: 'Ship to Home' });
+    expect(asked).toHaveBeenCalledTimes(1);
+    expect(clicked).not.toHaveBeenCalled();
+  });
+  it('says no choice was kept when the page offers none', async () => {
+    document.body.innerHTML = product();
+    expect(await harborFreightPressAdd(SKU, 2, 0, 0)).toEqual({ kind: 'sent' });
+  });
+  it('a store or ZIP prompt still fails the line, even with a choice selected', async () => {
+    const selected = '<label><input type="radio" name="fulfillment" value="ship" checked>Ship to Home</label>';
+    const clicked = vi.fn();
+    for (const page of [
+      `${product(selected)}<div role="dialog"><p>Select your store</p></div>`,
+      product(`${selected}<input name="zipCode" placeholder="ZIP code">`),
+    ]) {
+      document.body.innerHTML = page;
+      document.getElementById('add')!.addEventListener('click', clicked);
+      expect(await press()).toMatchObject({ kind: 'refused', message: expect.stringMatching(/store or ZIP/) });
+    }
+    expect(clicked).not.toHaveBeenCalled();
+  });
+  it('a ZIP box the page already filled in is not a prompt', async () => {
+    document.body.innerHTML = product('<label><input type="radio" name="fulfillment" value="ship" checked>Ship to Home</label><input name="zipCode" value="00000">');
+    expect(await harborFreightPressAdd(SKU, 2, 0, 0)).toMatchObject({ kind: 'sent', kept: 'Ship to Home' });
   });
   it('doesn\'t answer a store or ZIP prompt', async () => {
     document.body.innerHTML = `${product()}<div role="dialog"><p>Enter your ZIP code</p><input name="zip"></div>`;
@@ -305,11 +344,31 @@ describe('a whole build, through the runner', () => {
     const result = await build(site.tab);
     expect(result.items[0]).toMatchObject({ outcome: 'flagged', confirmed: false, message: expect.stringContaining('Quantity mismatch') });
   }, 20_000);
-  it('a pickup-or-ship choice fails the line with the reason, adds nothing, and the store carries on', async () => {
+  it('a selected pickup-or-ship choice is kept: the line is added, confirmed and flagged', async () => {
     const { tab, cart, log } = fakeSite({ productExtra: '<label><input type="radio" name="how" value="ship" checked>Ship to Home</label>' });
     const result = await build(tab);
-    expect(result.items[0]).toMatchObject({ outcome: 'failed', confirmed: false, message: expect.stringContaining('pickup or shipping') });
+    expect(result.items[0]).toMatchObject({ outcome: 'flagged', confirmed: true, message: expect.stringContaining('choice was kept: Ship to Home') });
     expect(result.stopped).toBeUndefined();
+    expect(log.adds).toEqual([2]);
+    expect(cart.get(SKU)).toBe(2);
+  }, 20_000);
+  it('a kept choice flags only the line it was kept on', async () => {
+    const site = fakeSite();
+    const plain = await build(site.tab);
+    expect(plain.items[0]).toMatchObject({ outcome: 'added', message: '' });
+  }, 20_000);
+  it('a pickup-or-ship choice with nothing selected fails the line with the reason, adds nothing, and the store carries on', async () => {
+    const { tab, cart, log } = fakeSite({ productExtra: '<label><input type="radio" name="how" value="pickup">In-Store Pickup</label><label><input type="radio" name="how" value="ship">Ship to Home</label>' });
+    const result = await build(tab);
+    expect(result.items[0]).toMatchObject({ outcome: 'failed', confirmed: false, message: expect.stringContaining('none is selected') });
+    expect(result.stopped).toBeUndefined();
+    expect(log.adds).toEqual([]);
+    expect(cart.size).toBe(0);
+  }, 20_000);
+  it('a store or ZIP prompt fails the line even with a choice selected, and adds nothing', async () => {
+    const { tab, cart, log } = fakeSite({ productExtra: '<label><input type="radio" name="how" value="ship" checked>Ship to Home</label><input name="zip" placeholder="Enter ZIP">' });
+    const result = await build(tab);
+    expect(result.items[0]).toMatchObject({ outcome: 'failed', confirmed: false, message: expect.stringContaining('store or ZIP') });
     expect(log.adds).toEqual([]);
     expect(cart.size).toBe(0);
   }, 20_000);
@@ -334,6 +393,10 @@ describe('what the file promises', () => {
   it('is item by item, asks for one origin, and its cart is the cart page', () => {
     expect(harborfreight).toMatchObject({ id: 'harborfreight', label: 'Harbor Freight', badge: 'item', origins: ['https://www.harborfreight.com/*'], cartUrl: 'https://www.harborfreight.com/checkout/cart' });
     expect(harborfreight.startUrl).toBe('https://www.harborfreight.com/');
+  });
+  it('the real tab rule lets it reach its cart page and nothing else under checkout', () => {
+    expect(allowedInTab(harborfreight, harborfreight.cartUrl!)).toBe(true);
+    expect(allowedInTab(harborfreight, 'https://www.harborfreight.com/checkout/shipping')).toBe(false);
   });
   it('sets no user agent, and reads no cookies', () => {
     expect(readFileSync(resolve('src/carts/stores/harborfreight.ts'), 'utf8')).not.toMatch(/user-?agent|navigator\.webdriver|document\.cookie|chrome\.cookies/i);

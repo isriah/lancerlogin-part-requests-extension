@@ -1,3 +1,4 @@
+import { allStoreOrigins } from '../src/carts/registry';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach,afterEach,describe,it,expect,vi } from 'vitest';
@@ -19,7 +20,7 @@ beforeEach(()=>{
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
 describe('the Carts switch',()=>{
   const flip=()=>{const box=input('carts-enabled');box.checked=!box.checked;box.dispatchEvent(new Event('change',{bubbles:true}));};
-  const storeOrigins=['https://www.mcmaster.com/*','https://www.pololu.com/*','https://www.revrobotics.com/*','https://wcproducts.com/*'];
+  const storeOrigins=allStoreOrigins();
   it('is off and disabled until paired',async()=>{await open();expect(input('carts-enabled').checked).toBe(false);expect(input('carts-enabled').disabled).toBe(true);});
   it('is off by default once paired, with no Open Carts',async()=>{view=paired();await open();expect(input('carts-enabled').checked).toBe(false);expect(input('carts-enabled').disabled).toBe(false);expect(input('carts-open-row').hidden).toBe(true);});
   it('asks Chrome for the stores during the click, before anything else',async()=>{

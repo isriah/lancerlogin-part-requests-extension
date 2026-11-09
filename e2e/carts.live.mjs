@@ -15,7 +15,11 @@ const shots = process.env.E2E_SCREENSHOTS;
 const channel = process.env.E2E_CHANNEL || 'msedge';
 const SITE = 'https://team-site.example.test';
 const DEVICE_KEY = 'e2eFakeDeviceKey00000000000000000000000000x'.slice(0, 43);
-const STORES = ['https://www.mcmaster.com/*', 'https://www.pololu.com/*', 'https://www.revrobotics.com/*', 'https://wcproducts.com/*'];
+const STORES = ['https://www.amazon.com/*', 'https://ambrosiafilament.com/*', 'https://andymark.com/*', 'https://us.store.bambulab.com/*', 'https://store.ctr-electronics.com/*', 'https://www.ferrulesdirect.com/*', 'https://www.harborfreight.com/*', 'https://www.mcmaster.com/*', 'https://www.onlinemetals.com/*', 'https://www.pololu.com/*', 'https://powerwerx.com/*', 'https://www.revrobotics.com/*', 'https://www.swervedrivespecialties.com/*', 'https://swervedrivespecialties.com/*', 'https://swyftrobotics.com/*', 'https://www.thethriftybot.com/*', 'https://www.vbeltguys.com/*', 'https://wcproducts.com/*', 'https://west3d.com/*'];
+// The same refusal as src/carts/safety.ts, which this script can't import. A unit test keeps the two alike.
+const NEVER = /checkout|action=buy|\/gp\/buy(\/|$|\?)|\/cart\/\d+:\d+|\/pay(ment)?(\/|$|\?)|place-?order/i;
+const HARBOR_FREIGHT_CART = 'https://www.harborfreight.com/checkout/cart';
+const forbidden = raw => { const u = new URL(raw); return u.href !== HARBOR_FREIGHT_CART && NEVER.test(`${u.pathname}${u.search}`); };
 const manifest = JSON.parse(readFileSync(join(root, 'dist', 'manifest.json'), 'utf8'));
 const extension = join(work, 'extension');
 cpSync(join(root, 'dist'), extension, { recursive: true });
@@ -47,7 +51,7 @@ try {
     if (!request.isNavigationRequest() || request.frame().parentFrame()) return route.fallback();
     const url = request.url();
     report.navigations.push(`${request.method()} ${url.split('?')[0]}`);
-    if (/\/checkouts?(\/|$|\?)|action=buy|\/cart\/\d+:\d+/i.test(new URL(url).pathname + new URL(url).search)) { report.checkoutNavigations.push(url); return route.abort(); }
+    if (forbidden(url)) { report.checkoutNavigations.push(url); return route.abort(); }
     return route.fallback();
   });
   let worker = context.serviceWorkers()[0];

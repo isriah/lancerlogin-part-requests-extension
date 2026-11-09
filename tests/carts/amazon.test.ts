@@ -124,7 +124,7 @@ describe('walls', () => {
     at('/gp/cart/view.html', cartPage([[ASIN, 1]], `<p>Toy: not a robot. ${'x'.repeat(4000)}</p>`));
     expect(amazonWall()).toEqual({ kind: 'ok' });
   });
-  it('Amazon\'s checkout addresses stop the store, which the shared rule doesn\'t yet catch', () => {
+  it('Amazon\'s checkout addresses stop the store here too, if one is ever reached after loading', () => {
     for (const path of ['/gp/buy/spc/handlers/display.html', '/checkout/entry/cart']) {
       at(path, '<h1>Review your order</h1>');
       expect(amazonWall()).toMatchObject({ kind: 'stop', reason: 'unexpected' });

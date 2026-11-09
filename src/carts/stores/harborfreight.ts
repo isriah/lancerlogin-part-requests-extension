@@ -1,7 +1,8 @@
 // Harbor Freight: /search?q=<SKU> goes to the product, then its own quantity box and Add to Cart, then the cart page reads back. It has never run
 // against the real pages, because a fresh browser gets a Press & Hold bot check, which stops the store like any other wall. So the page shapes here
 // are from the research, and anything else stops or fails the line with nothing added. docs/CARTS.md says what the owner has to check.
-// The cart page is /checkout/cart, which safety.ts has to allow by exact address. Until it does, the first read stops the store before any add.
+// The cart page is /checkout/cart, which safety.ts allows by this exact address only. Any other address there stops the store.
+// Owner decision 2026-11-09: a pickup or shipping choice that's already selected is kept, and flags the line. None selected, or a store or ZIP prompt, fails it.
 import { LineProblem, stopIf, type CartLine, type PageStop, type StoreMethod } from '../store-method';
 import type { CartOrder } from '../types';
 
@@ -82,10 +83,11 @@ export async function harborFreightReadCart(keys: string[], waitMs = 10_000, emp
 }
 /**
  * Injected on the product page. Sets this product's own quantity box and presses its own Add to Cart, once. It refuses, with nothing pressed, on another
- * SKU, a pickup-or-ship choice, a store or ZIP prompt, more than one Add to Cart for the product, or a control that goes anywhere else. It presses nothing
- * after the add, so a "view cart" or "checkout" in the confirmation stays untouched. Whether it landed is for the read-back to say.
+ * SKU, a pickup-or-ship choice with nothing selected, a store or ZIP prompt, more than one Add to Cart for the product, or a control that goes anywhere
+ * else. A choice that's already selected is left alone and named in `kept`. It presses nothing after the add, so a "view cart" or "checkout" in the
+ * confirmation stays untouched. Whether it landed is for the read-back to say.
  */
-export async function harborFreightPressAdd(sku: string, quantity: number, waitMs = 10_000, settleMs = 8000): Promise<{ kind: 'sent' } | { kind: 'refused'; message: string } | PageStop> {
+export async function harborFreightPressAdd(sku: string, quantity: number, waitMs = 10_000, settleMs = 8000): Promise<{ kind: 'sent'; kept?: string } | { kind: 'refused'; message: string; kept?: string } | PageStop> {
   const wait = (ms: number) => new Promise(done => setTimeout(done, ms));
   const shown = (node: Element) => { const box = node.getBoundingClientRect(); return box.width > 0 && box.height > 0; };
   const words = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim();
@@ -114,11 +116,14 @@ export async function harborFreightPressAdd(sku: string, quantity: number, waitM
   const mine = area ? adds.filter(node => area!.contains(node)) : [];
   if (!area || mine.length !== 1) return refused('The page doesn\'t show one clear Add to Cart for this item, so nothing was added.');
   const scope = area, add = mine[0] as HTMLElement;
-  const choices = [...scope.querySelectorAll('input[type="radio"],[role="radio"],[role="tab"],[aria-pressed]')].filter(node => {
-    const label = `${(node as HTMLInputElement).labels ? [...(node as HTMLInputElement).labels!].map(item => item.textContent).join(' ') : ''} ${node.textContent ?? ''} ${node.getAttribute('aria-label') ?? ''} ${node.getAttribute('name') ?? ''} ${(node as HTMLInputElement).value ?? ''}`;
-    return /pick\s?-?up|ship|deliver/i.test(label);
-  });
-  if (choices.length) return refused('Harbor Freight offers pickup or shipping for this item. That\'s your choice, so nothing was added.');
+  const shownName = (node: Element) => words(`${(node as HTMLInputElement).labels ? [...(node as HTMLInputElement).labels!].map(item => item.textContent).join(' ') : ''} ${node.textContent ?? ''} ${node.getAttribute('aria-label') ?? ''}`);
+  const choices = [...scope.querySelectorAll('input[type="radio"],[role="radio"],[role="tab"],[aria-pressed]')].filter(node => /pick\s?-?up|ship|deliver/i.test(`${shownName(node)} ${node.getAttribute('name') ?? ''} ${(node as HTMLInputElement).value ?? ''}`));
+  const selected = choices.filter(node => (node as HTMLInputElement).checked === true || ['aria-checked', 'aria-selected', 'aria-pressed'].some(name => node.getAttribute(name) === 'true'));
+  if (choices.length && !selected.length) return refused('Harbor Freight needs a pickup or shipping choice for this item, and none is selected. That\'s your choice, so nothing was added.');
+  const zipBox = [...scope.querySelectorAll('input')].find(node => shown(node) && !node.value.trim() && /zip|postal/i.test(`${node.name} ${node.id} ${node.placeholder} ${node.getAttribute('aria-label') ?? ''}`));
+  if (zipBox) return refused('Harbor Freight is asking for a store or ZIP code. That\'s your choice, so nothing was added.');
+  const keptName = [...new Set(selected.map(node => shownName(node) || words((node as HTMLInputElement).value)))].filter(Boolean).join(', ').slice(0, 100);
+  const kept = selected.length ? { kept: keptName || 'the one the page had selected' } : {};
   if ((add as HTMLButtonElement).disabled || add.getAttribute('aria-disabled') === 'true') return refused('Harbor Freight shows Add to Cart as unavailable for this item.');
   const address = `${add.getAttribute('href') ?? ''} ${add.getAttribute('formaction') ?? ''} ${add.closest('form')?.getAttribute('action') ?? ''}`;
   if (/check\s?out|\bbuy\b|\bpay\b|place.?order/i.test(address)) return { kind: 'stop', reason: 'unexpected', detail: 'an Add to Cart that goes somewhere else', notSent: true };
@@ -143,11 +148,11 @@ export async function harborFreightPressAdd(sku: string, quantity: number, waitM
   const pressed = Date.now();
   while (Date.now() - pressed < settleMs) {
     await wait(200);
-    if (!addedBefore && added()) return { kind: 'sent' };
-    if (prompt()) return refused('Harbor Freight asked for a store or ZIP code after Add to Cart. That\'s your choice, so nothing more was done.');
-    if (count() !== countBefore) return { kind: 'sent' };
+    if (!addedBefore && added()) return { kind: 'sent', ...kept };
+    if (prompt()) return { ...refused('Harbor Freight asked for a store or ZIP code after Add to Cart. That\'s your choice, so nothing more was done.'), ...kept };
+    if (count() !== countBefore) return { kind: 'sent', ...kept };
   }
-  return { kind: 'sent' };
+  return { kind: 'sent', ...kept };
 }
 
 export const harborfreight: StoreMethod = {
@@ -177,6 +182,8 @@ export const harborfreight: StoreMethod = {
     async addLine(tab, target, quantity) {
       await tab.goto(target.addAs);
       const answer = stopIf(await tab.run(harborFreightPressAdd, target.key, quantity));
+      // The runner reads the note after its read-back, so this flags the line only if the add landed.
+      if (answer.kept) target.note = `Harbor Freight's selected pickup or shipping choice was kept: ${answer.kept}. Check it in the cart.`;
       if (answer.kind === 'refused') throw new LineProblem(answer.message);
     },
   },

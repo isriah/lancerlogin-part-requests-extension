@@ -88,8 +88,8 @@ describe('grouping and fallback', () => {
   });
 });
 describe('the registry', () => {
-  it('every store has identity, a badge, origins, required fields and steps', () => {
-    for (const store of STORES) {
+  it('every automated store has identity, a badge, origins, required fields and steps', () => {
+    for (const store of STORES.filter(item => item.badge !== 'checklist')) {
       expect(store.id).toMatch(/^[a-z0-9-]+$/);
       expect(store.label).toBeTruthy();
       expect(BADGE_LABEL[store.badge]).toBeTruthy();
@@ -101,9 +101,19 @@ describe('the registry', () => {
       expect(allowedInTab(store, store.cartUrl!)).toBe(true);
     }
   });
-  it('the four first stores use the methods the research found', () => {
-    expect(Object.fromEntries(STORES.map(s => [s.id, s.badge]))).toEqual({ mcmaster: 'item', pololu: 'item', rev: 'direct', wcp: 'direct' });
-    expect(allStoreOrigins()).toHaveLength(4);
+  it('a checklist store asks for no access, opens no tab and has no steps', () => {
+    for (const store of STORES.filter(item => item.badge === 'checklist')) {
+      expect(store.origins).toEqual([]);
+      expect(store.startUrl).toBeUndefined();
+      expect(store.steps).toBeUndefined();
+    }
+  });
+  it('every store has the method its evidence supports', () => {
+    expect(Object.fromEntries(STORES.map(s => [s.id, s.badge]))).toEqual({
+      aliexpress: 'checklist', amazon: 'item', ambrosia: 'direct', andymark: 'direct', bambu: 'item', ctre: 'direct', ferrules: 'direct', harborfreight: 'item', homedepot: 'checklist',
+      mcmaster: 'item', onlinemetals: 'item', pololu: 'item', powerwerx: 'item', rev: 'direct', sds: 'direct', swyft: 'item', thrifty: 'direct', vbelts: 'direct', wcp: 'direct', west3d: 'direct',
+    });
+    expect(allStoreOrigins()).toHaveLength(19);
   });
 });
 describe('addresses a store tab refuses', () => {
@@ -112,6 +122,34 @@ describe('addresses a store tab refuses', () => {
   });
   it.each(['https://www.revrobotics.com/cart.php?action=add&sku=X&qty=2', 'https://wcproducts.com/cart', 'https://www.pololu.com/cart', 'https://www.mcmaster.com/orders/'])('allows %s', url => {
     expect(isForbiddenUrl(url)).toBe(false);
+  });
+  it.each(['https://www.amazon.com/gp/buy', 'https://www.amazon.com/gp/buy/', 'https://www.amazon.com/gp/buy/spc/handlers/display.html', 'https://www.amazon.com/gp/buy?x=1', 'https://www.amazon.com/GP/BUY/thing'])('refuses Amazon\'s %s', url => {
+    expect(isForbiddenUrl(url)).toBe(true);
+  });
+  it.each(['https://www.amazon.com/gp/buyagain', 'https://www.amazon.com/gp/cart/view.html', 'https://www.amazon.com/gp/aws/cart/add.html?ASIN.1=B000000000&Quantity.1=2'])('leaves Amazon\'s %s alone', url => {
+    expect(isForbiddenUrl(url)).toBe(false);
+  });
+  it('allows Harbor Freight\'s cart page at exactly its address', () => {
+    expect(isForbiddenUrl('https://www.harborfreight.com/checkout/cart')).toBe(false);
+    expect(allowedInTab({ hosts: ['www.harborfreight.com'] }, 'https://www.harborfreight.com/checkout/cart')).toBe(true);
+  });
+  it.each([
+    'https://www.harborfreight.com/checkout/cart/',
+    'https://www.harborfreight.com/checkout/cart?next=/checkout/shipping',
+    'https://www.harborfreight.com/checkout/cart?',
+    'https://www.harborfreight.com/checkout/cart#top',
+    'https://www.harborfreight.com/checkout',
+    'https://www.harborfreight.com/checkout/',
+    'https://www.harborfreight.com/checkout/shipping',
+    'https://www.harborfreight.com/checkout/cart/add',
+    'https://www.harborfreight.com/CHECKOUT/cart',
+    'http://www.harborfreight.com/checkout/cart',
+    'https://harborfreight.com/checkout/cart',
+    'https://user:pw@www.harborfreight.com/checkout/cart',
+    'https://www.harborfreight.com.example.test/checkout/cart',
+    'https://wcproducts.com/checkout/cart',
+  ])('still refuses %s', url => {
+    expect(isForbiddenUrl(url)).toBe(true);
   });
   it('refuses another site, even a lookalike', () => {
     const store = { hosts: ['wcproducts.com'] };

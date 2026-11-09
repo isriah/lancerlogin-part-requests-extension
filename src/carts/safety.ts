@@ -1,11 +1,16 @@
 // The rules that hold for every store. A store's own file can't get around these: the tab refuses the address before going there.
 import type { StoreMethod } from './store-method';
 
-/** Checkout, buy-now links and Shopify's permalinks, which skip the cart and go straight to checkout. */
-const NEVER = /checkout|action=buy|\/cart\/\d+:\d+|\/pay(ment)?(\/|$|\?)|place-?order/i;
+/** Checkout, buy-now links, Amazon's checkout pages and Shopify's permalinks, which skip the cart and go straight to checkout. */
+const NEVER = /checkout|action=buy|\/gp\/buy(\/|$|\?)|\/cart\/\d+:\d+|\/pay(ment)?(\/|$|\?)|place-?order/i;
+/** Harbor Freight's cart page sits under /checkout. Only this exact address passes: another host, a trailing slash, a query or a fragment doesn't. */
+const HARBOR_FREIGHT_CART = 'https://www.harborfreight.com/checkout/cart';
 export function isForbiddenUrl(raw: string): boolean {
-  try { const u = new URL(raw); return NEVER.test(`${u.pathname}${u.search}`); }
-  catch { return true; }
+  try {
+    const u = new URL(raw);
+    if (u.href === HARBOR_FREIGHT_CART) return false;
+    return NEVER.test(`${u.pathname}${u.search}`);
+  } catch { return true; }
 }
 export function isOnStore(store: Pick<StoreMethod, 'hosts'>, raw: string): boolean {
   try { const u = new URL(raw); return u.protocol === 'https:' && !u.username && !u.password && store.hosts.includes(u.hostname.toLowerCase()); }

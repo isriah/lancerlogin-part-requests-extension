@@ -19,14 +19,14 @@ const shots = process.env.E2E_SCREENSHOTS;
 const channel = process.env.E2E_CHANNEL || (process.platform === 'win32' ? 'msedge' : 'chromium');
 const realPrompt = process.env.E2E_PROMPT !== 'stub' && process.platform === 'win32' && channel === 'msedge';
 const SITE = 'https://team-site.example.test';
-const STORE_ORIGINS = ['https://www.mcmaster.com/*', 'https://www.pololu.com/*', 'https://www.revrobotics.com/*', 'https://wcproducts.com/*'];
+const STORE_ORIGINS = ['https://www.amazon.com/*', 'https://ambrosiafilament.com/*', 'https://andymark.com/*', 'https://us.store.bambulab.com/*', 'https://store.ctr-electronics.com/*', 'https://www.ferrulesdirect.com/*', 'https://www.harborfreight.com/*', 'https://www.mcmaster.com/*', 'https://www.onlinemetals.com/*', 'https://www.pololu.com/*', 'https://powerwerx.com/*', 'https://www.revrobotics.com/*', 'https://www.swervedrivespecialties.com/*', 'https://swervedrivespecialties.com/*', 'https://swyftrobotics.com/*', 'https://www.thethriftybot.com/*', 'https://www.vbeltguys.com/*', 'https://wcproducts.com/*', 'https://west3d.com/*'];
 const NOTICE = 'No AI places your orders. This extension doesn\'t use AI. It only helps add items to a store\'s cart, after you click Build carts. You review the cart and place every order yourself on the store\'s own site.';
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${!ok && detail !== '' ? ` -> ${typeof detail === 'string' ? detail : JSON.stringify(detail)}` : ''}`); };
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 const productionManifest = JSON.parse(readFileSync(join(root, 'dist', 'manifest.json'), 'utf8'));
-check('Manifest: version 0.4.0', productionManifest.version === '0.4.0');
+check('Manifest: version 0.5.0', productionManifest.version === '0.5.0');
 check('Manifest: no cookie, web-request or always-on host access', !/cookies|webRequest|declarativeNet/.test(JSON.stringify(productionManifest)) && !productionManifest.host_permissions);
 const extension = join(work, 'extension');
 cpSync(join(root, 'dist'), extension, { recursive: true });
@@ -319,7 +319,7 @@ try {
   check('REV: added with action=add', stores.state.rev.cart.get('TEST-3001') === 1 && stores.state.adds().filter(a => a.store === 'rev').every(a => /action=add&sku=TEST-3001&qty=1/.test(a.url)));
   check('Pololu: Quick add line, read back, and the price change is flagged', stores.state.pololu.cart.get('2136') === 2 && stores.state.adds().some(a => a.store === 'pololu' && a.body === '2136,2') && /Price changed: requested at \$14\.85, store shows \$15\.95/.test(await cardText(carts, 'pololu')), await cardText(carts, 'pololu'));
   check('McMaster: pasted one line, pressed ADD, read back', stores.state.mcmaster.cart.get('91251A537') === 2 && /1 added/.test(await cardText(carts, 'mcmaster')), await cardText(carts, 'mcmaster'));
-  check('Checklist: Home Depot lists links and quantities', /Add these yourself/.test(await cardText(carts, 'checklist:home-depot')) && /qty 3/.test(await cardText(carts, 'checklist:home-depot')) && await carts.$eval('[data-result="checklist:home-depot"] li a', a => a.href === 'https://www.homedepot.com/p/test/100'));
+  check('Checklist: Home Depot lists links and quantities', /Add these yourself/.test(await cardText(carts, 'homedepot')) && /qty 3/.test(await cardText(carts, 'homedepot')) && await carts.$eval('[data-result="homedepot"] li a', a => a.href === 'https://www.homedepot.com/p/test/100'));
   check('Checklist: an unknown store does too', /Test sheet from nowhere known, qty 1/.test(await cardText(carts, 'checklist:other-store')) && await carts.$eval('[data-result="checklist:other-store"] li a', a => a.href === 'https://not-a-store.example.test/thing'));
   check('Checklist: nothing went to those sites', !outsiders.some(url => /homedepot|not-a-store/.test(url)), outsiders);
   const cartLinks = await carts.$$eval('[data-result] a.ui-button', links => links.map(a => a.href));

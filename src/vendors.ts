@@ -74,7 +74,7 @@ export const VENDORS: AdapterConfig[] = [
   }),
   entry('rev', 'REV', 'revrobotics.com', bc),
   entry('sds', 'SDS', 'swervedrivespecialties.com', shopify),
-  entry('swyft', 'Swyft', 'swyftrobotics.com', shopify, { profile: 'catalog', productPath: '/(?:products?|motion|structure|electrical|materials|machines)/[^/?#]+', title: ['main h1'], price: ['main .space-y-6 .font-price'], sku: [], variants: ['main .space-y-6 .space-y-4 button[aria-pressed="true"]'], productMarker: ['main .space-y-6 .font-price'] }),
+  entry('swyft', 'Swyft', 'swyftrobotics.com', shopify, { profile: 'catalog', productPath: '/(?:products?|motion|structure|electrical|materials|machines|kits)/[^/?#]+', title: ['main h1'], price: ['main .space-y-6 .font-price'], sku: [], variants: ['main .space-y-6 .space-y-4 button[aria-pressed="true"]'], productMarker: ['main .space-y-6 .font-price'] }),
   entry('thrifty', 'Thrifty Bot', 'thethriftybot.com', shopify),
   entry('vbelts', 'V-Belt Guys', 'vbeltguys.com', shopify),
   entry('wcp', 'WCP', 'wcproducts.com', shopify, { title: ['.tt-title', '.product-single__title', '.product-title', 'h1'] }),
