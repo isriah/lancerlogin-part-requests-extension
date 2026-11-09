@@ -1,79 +1,68 @@
 # Setup and troubleshooting
 
-## Coach: create the connection
+## Before students pair
 
-1. In Notion's developer portal, create an **internal connection** for the team's workspace. A workspace owner must arrange the connection and access. Use a dedicated connection for this personal pilot.
-2. Enable **Read content**, **Insert content**, and **Read user information without email addresses**. The extension does not need Update content or comment capabilities.
-3. Open the original ordering database in Notion. In its **Connections** menu, add the connection. Share a test copy with matching schema first.
-4. On the student's computer, open the extension's Options page. Enter the connection token directly there and paste the original database URL. Do not put the token into a source file, command, screenshot, or chat.
-5. Choose **Test connection and save**. If the database has several data sources, choose the ordering source and test again. This action reads access and schema; it does not create pages or change properties.
+An Admin installs and sets up the [Part Requests plugin](https://github.com/isriah/lancerlogin-part-requests) on the team's LancerLogin site. That is where the Notion connection and the database layout live, and its README lists both. Nothing about Notion is configured in the extension.
 
-Notion explains connection access in its [authorization guide](https://developers.notion.com/guides/get-started/authorization). The extension sends API version `2026-03-11` and resolves the URL's database ID to a data source. The `v` query parameter is a view ID and is never used as the write destination.
+Each student must be on the active roster with a linked Discord account, because `/ordering-pin` requires both.
 
+## Student: pair this device
 
-## Required existing schema
+The [student guide](STUDENT-GUIDE.md) is the short version.
 
-Initial mapping uses the exact property names below. Successful setup saves the property IDs, so later property renames remain mapped when refreshing the same data source. The extension never adds options, properties, or templates.
+1. In your team's Discord server, run `/ordering-pin`. The private reply gives a site address and a PIN that works once and expires in 10 minutes. Running it again cancels the earlier PIN. Devices you already paired stay paired, up to 5.
+2. Open the extension's Options page. Paste the site address and the PIN, with or without its hyphen. Give the device a name so an Admin can tell your devices apart.
+3. Click **Pair this device**. Chrome asks to allow that one site. Choose **Allow**.
 
-| Property | Accepted type | Requirements |
-|---|---|---|
-| Item Description | Title | Request description |
-| Status | Status or Select | Existing `NORMAL Request` and `Incomplete Request` options |
-| Vendor | Select | All 20 exact labels in the [vendor matrix](VENDORS.md) |
-| Team | Select or Multi-select | At least one existing choice; one choice per request |
-| Orderer/Recipient | People | A Notion person |
-| SKU | Rich text | Optional on requests |
-| Product URL | URL | A supported store |
-| Qty | Number | Positive quantity |
-| Unit Price | Number | USD; use dollar display formatting in Notion |
-| Extension | Formula or Rollup | Read-only; calculated by Notion |
+The address can be pasted as you got it. The extension uses only its origin, requires `https://`, and adds `/api` to reach Core's Pages proxy.
 
-An incompatible property or missing option produces a setup error naming the problem. Verify the correct original database and ask the coach to correct its schema. The code does not assume the public page's IDs or types before authenticated setup.
+If you choose **Deny**, nothing is paired, nothing is sent and your PIN still works. Click **Pair this device** again and choose **Allow**.
 
-## Student: choose defaults and import a guest
+## Student: choose defaults
 
-Select your team and your Orderer/Recipient, then **Save defaults**. You can override either field for an individual request.
+Select your team and your Notion name, then **Save defaults**. You can override either on an individual request. Your name is saved with the site through the plugin, so other devices you pair start with it. Your team is saved on this device only. If you skip this, the person on your first successful request becomes your default.
 
-The recipient list combines workspace members with everyone already named as an Orderer/Recipient on a request in this database, so guests who have requested parts before appear automatically. It refreshes each time you open this page. If the lookup fails, the page shows why, and workspace members and the manual import below still work.
+The team and recipient lists come from the plugin and refresh each time you open the popup or Options. The recipient list combines workspace members with everyone already named on an existing request, and the plugin refreshes it every six hours. If your name is missing, ask an Admin to refresh the list. A guest who has never been on a request needs someone to add them to one in Notion first.
 
-If your name is still missing, you have no requests yet:
+## Unpairing and pairing again
 
-1. Find an existing request in the configured database with you set in Orderer/Recipient. If necessary, ask the coach to make one in Notion first.
-2. Copy that request's full page URL into **Existing request URL**.
-3. Choose **Find recipients in request**. The extension reads only that page's mapped people property and resolves the names.
-4. Select the correct person from the resulting list and save defaults.
+**Unpair this device** forgets the key on this computer and removes Chrome's permission for the site. It does not end the key on the site, because the plugin has no route for a device to revoke itself: the device stays on the Admin page and counts toward your limit of 5 until an Admin removes it. Drafts on this computer are kept.
 
-Notion's [user-list endpoint excludes guests](https://developers.notion.com/reference/get-users), so the guest flow does not depend on appearing in the workspace member list. Imported people IDs and names are stored locally; emails are not retained.
+An Admin can revoke a device, and leaving the active roster ends access. The extension then forgets its key and asks you to pair again. Drafts are kept, and pairing again from the same member lets you send them. After a site restore, every device has to pair again.
 
 ## Security and local data
 
-The manifest requests `activeTab`, `scripting`, `storage`, and access to `https://api.notion.com/*`. The reader runs in the clicked tab's isolated world. There are no persistent product-site host permissions, content scripts, automatic browsing monitors, telemetry, external scripts, or remote code.
+The manifest requests `activeTab`, `scripting` and `storage`, plus `optional_host_permissions` of `https://*/*`, from which it asks for one site, during your Pair click. Unpairing or pairing with another site gives the old one up. There are no persistent product-site permissions, content scripts, automatic browsing monitors, telemetry, external scripts, or remote code. The reader runs in the clicked tab's isolated world.
 
-The token is saved in `chrome.storage.local`. On every service-worker start, storage access is restricted to `TRUSTED_CONTEXTS`. Only the service worker reads the stored token and sends it to Notion. Product-page code receives only the vendor's public extraction configuration. Runtime messages are accepted only from this extension's popup and settings page. Chrome Sync is not used.
+The device key is saved in `chrome.storage.local`. On every service-worker start, storage access is restricted to `TRUSTED_CONTEXTS`, so content scripts cannot read it. Only the service worker reads the key and sends it, as a bearer token and only to the paired site's address. Requests do not follow redirects and send no cookies. The popup and Options pages are never given the key. Runtime messages are accepted only from this extension's popup and settings page. Chrome Sync is not used.
 
-Local extension storage is not an encrypted credential vault. Anyone with access to the Chrome profile, its backups, extension debugging tools, or the local machine may be able to recover the token and saved drafts. Use a trusted personal browser profile. See [Chrome storage documentation](https://developer.chrome.com/docs/extensions/reference/api/storage).
-
-**Disconnect** removes the token and configured people/schema/defaults. It leaves draft and submission history in place to preserve duplicate-submit protection. Revoke the connection in Notion when it is no longer needed. Uninstalling the extension removes its local data; check uncertain submissions in Notion before reinstalling or clearing storage.
+Local extension storage is not an encrypted credential vault. Anyone with access to the Chrome profile, its backups, extension debugging tools, or the local machine may be able to recover the key and saved drafts. Use a trusted browser profile, and ask an Admin to revoke the device if a computer is lost. Uninstalling the extension removes its local data; check uncertain submissions in Notion before reinstalling or clearing storage.
 
 ## Troubleshooting
 
 | Message or behavior | What to do |
 |---|---|
-| Token invalid or expired | Replace the token in Options. Existing tokens are never displayed again. |
-| Connection lacks permission | Have the coach check read, insert, and user-information capabilities. |
-| Database/page inaccessible | Connect the original database to the integration. Check that the URL belongs to the right workspace. A public Notion link alone does not grant API access. |
-| Multiple data sources | Select the ordering source and test again. |
-| Missing/incompatible field | Confirm the schema above. No automatic schema changes are made. |
-| Person missing | Import from an existing request in the same database. |
+| You chose Deny | Click **Pair this device** again and choose **Allow**. |
+| That PIN does not work | Run `/ordering-pin` again and use the new PIN. Only the latest PIN works, once, for 10 minutes. |
+| Pairing is paused | Too many wrong PINs were tried. Try again later. |
+| You already have 5 paired devices | Ask an Admin to remove a device, then run `/ordering-pin` again. |
+| Did not answer like a site with Part Requests | Check the address from the Discord reply. |
+| The site address must start with https:// | Use the address from the Discord reply. Plain `http` is refused. |
+| This device is no longer paired | Run `/ordering-pin` and pair again in Options. Your drafts are kept. |
+| Chrome no longer has permission | The site's permission was removed in Chrome. Unpair in Options, then pair again. |
+| The site is updating | Wait. The extension tries again by itself with the same request. If it gives up, your draft stays, so send it again later. |
+| Not connected to Notion, or an Admin has to act | The plugin's Notion connection needs attention. Ask an Admin. Nothing was created. |
+| Too many requests | Wait the time shown. The limit is per device. |
+| Requested recently | Someone asked for the same product in the last 7 days. Check with them if you are not sure, or send anyway. |
+| Person missing | See [Student: choose defaults](#student-choose-defaults). |
 | Product price/SKU blank | Choose all product options and reopen. If a draft already exists, Discard to recapture, then correct the exact values manually. |
 | Open one specific product | Leave search, category, cart, or multi-product pages. WCP requires one checked part. McMaster requires an individual part-number page. |
 | Foreign or unknown currency | Enter the price in USD and check the confirmation box. No conversion is performed. |
 | Unsupported URL | Use a fixed allowlisted store. Redirect shortened links by opening them normally first. BambuLab is US-only and CTRE uses its store subdomain. |
 | Access check | Complete it yourself in the product tab; reopen the extension afterward. No bypass is attempted. |
-| Notion rejected request | Review the fields, then refresh the connection/schema in Options. Use Review and retry after fixing it. |
-| Rate limited | Wait the displayed interval before an explicit retry. There is no automatic retry. |
-| Check Notion before retrying | A timeout, conflict, server error, worker interruption, or lost response may conceal a successful create. Check the linked database. Only confirm the checkbox if the request does not exist. |
+| Request was not created | Notion refused it, or the site has no record of it. Review the fields and use **Review and retry**. |
+| Check Notion before retrying | A timeout, conflict, server error, worker interruption, or lost response may conceal a successful create. Check your team's ordering database in Notion. Only confirm the checkbox if the request does not exist. |
 | Form locked while pending | Wait for the result. After 30 seconds without confirmation, the popup offers the explicit check-and-retry flow. |
-| Browser says extension APIs unavailable | Load `dist` through `chrome://extensions`, then use the toolbar popup. A regular web tab is only a layout preview. |
+| Browser says extension APIs unavailable | Load the folder through `chrome://extensions`, then use the toolbar popup. A regular web tab is only a layout preview. |
 
 If a request already exists after an uncertain result, leave the saved submission alone and continue in Notion. Do not check the retry confirmation. Nothing automatically creates another request when you close the popup.

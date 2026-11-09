@@ -1,8 +1,8 @@
 # Vendor support matrix
 
-The list is fixed in `src/vendors.ts`. Every row has a passing fixture. Root, `www`, `m`, and `mobile` shopping hosts are allowlisted for ordinary vendors. BambuLab accepts only its US store host and its `www` equivalent; CTRE accepts only its store host and its `www` equivalent. Unrelated subdomains and lookalike domains are rejected. The Other option is never mapped.
+The list is fixed in `src/vendors.ts`, and the Part Requests plugin keeps the same list in its own `src/vendors.ts`, because the server checks the store again and derives the Vendor from the URL. Every row has a passing fixture. Root, `www`, `m`, and `mobile` shopping hosts are allowlisted for ordinary vendors. BambuLab accepts only its US store host and its `www` equivalent; CTRE accepts only its store host and its `www` equivalent. Unrelated subdomains and lookalike domains are rejected. The Other option is never used.
 
-Live checks dated **2026-09-21** read the current product DOM in Chrome and executed the product reader. Values below are observed test examples, not current purchasing quotes. Installed-extension toolbar acceptance remains pending for every vendor.
+These checks were made with the same reader before requests moved to the plugin; capture has not changed since. Live checks dated **2026-09-21** read the current product DOM in Chrome and executed the product reader. Values below are observed test examples, not current purchasing quotes. Installed-extension toolbar acceptance remains pending for every vendor.
 
 Rechecked **2026-11-08** with the current reader:
 - **West3D:** the store now publishes a ProductGroup plus a base product, which the reader wrongly reported as several products. Fixed; selected variant captured as LDO0803, $1,199.
@@ -45,4 +45,4 @@ Rechecked **2026-11-08** with the current reader:
 4. Preserve the original browser URL, including query parameters and fragments. Never swap in canonical metadata that loses the selection. Test a changed variant and missing metadata, not only the default page.
 5. Run `npm run check`, reload the unpacked extension, and compare a fresh toolbar capture against the live page. Update the matrix with date, URL, observed fields, and outstanding constraints.
 
-Adding a Vendor option in Notion cannot enable a new website. A code change, explicit host allowlist entry, adapter fixtures, and a live check are required. Do not extend selectors to search results, carts, or unrelated metadata simply to obtain a non-empty price.
+Adding a Vendor option in Notion cannot enable a new website. A code change here and in the plugin, explicit host allowlist entry, adapter fixtures, and a live check are required. Do not extend selectors to search results, carts, or unrelated metadata simply to obtain a non-empty price.

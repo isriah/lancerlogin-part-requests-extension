@@ -1,18 +1,22 @@
 # Robotics Part Requests
 
-A personal, unpacked Chrome extension that turns the product you are viewing into a reviewed Notion part request. It supports the 20 fixed vendors in the team's ordering form. It creates requests; the coach still handles purchasing and receiving.
+A Chrome extension that turns the product you are viewing into a reviewed part request in your team's Notion ordering database. It supports the 20 fixed vendors in the team's ordering form. It sends through your team's LancerLogin site, using the [Part Requests plugin](https://github.com/isriah/lancerlogin-part-requests), which holds the Notion connection. The extension holds no Notion token and never contacts Notion. It creates requests; the coach still handles purchasing and receiving.
 
-The implementation includes a review popup, settings, guest-recipient lookup, vendor readers, persistent drafts, and submission recovery. It uses Manifest V3, TypeScript, Vite, vanilla HTML/CSS, and Vitest. No server or AI service is required.
+Students never sign in to LancerLogin. They pair the extension once, with a PIN from Discord.
+
+It uses Manifest V3, TypeScript, Vite, vanilla HTML/CSS and Vitest.
+
+**Students:** follow the [student guide](docs/STUDENT-GUIDE.md).
 
 ## Install
 
 1. Open `chrome://extensions` in Chrome 120 or newer.
 2. Turn on **Developer mode**.
-3. Choose **Load unpacked** and select this project's **dist** folder.
+3. Choose **Load unpacked** and select the unzipped folder, or this project's **dist** folder after a build.
 4. Pin **Robotics Part Requests** from Chrome's extensions menu.
-5. Open its **Options** page and follow the [coach setup guide](docs/SETUP.md).
+5. Open its **Options** page and pair it. See [setup and troubleshooting](docs/SETUP.md).
 
-The supplied `dist` folder is ready to load. It contains no credentials. Keep it in place while the extension is installed. After rebuilding, click **Reload** on the extension's card in Chrome.
+Keep the folder in place while the extension is installed. After rebuilding, click **Reload** on the extension's card in Chrome.
 
 ## Use
 
@@ -22,16 +26,16 @@ Quantity is the number of units or packs sold at the displayed unit price. For a
 
 Edits are saved locally per tab and original URL. Reopening the popup restores them. **Discard** removes edits and recaptures the current page. Success clears the draft and retains a receipt with **Open in Notion** and **New request** actions. A new browser tab is a separate draft.
 
-If a request times out, it may already exist in Notion. The extension will not resend it automatically. Check the database before acknowledging a retry. It does not search for duplicate orders.
+If someone asked for the same product in the last 7 days, the popup says who and when. It is only a warning, and you can still send.
+
+During a LancerLogin update, the extension waits and tries again by itself with the same request ID, a limited number of times, and the site allows one create per ID. If the result is ever unknown, it may already exist in Notion, so the extension will not resend it on its own. Check the database before choosing to try again.
 
 ## Verification status
 
-- Automated regression suite: **137 tests pass**, including all 20 adapter fixtures, Notion mocks, worker persistence, and popup interactions.
-- Browser end-to-end run (`npm run e2e`): **48 checks pass** against the built extension with a simulated Notion API and live product pages. It cannot prove Chrome's toolbar-click permission grant.
-- Live product-reader checks on 2026-11-08: see the [vendor matrix](docs/VENDORS.md).
-- Authenticated connection and schema validation passed on 2026-11-08 against the test database. NORMAL (REV) and Incomplete (McMaster) requests created through the toolbar in that database matched their product pages on 2026-11-08. Rapid clicks on real Notion created no duplicate; each extra request needed a deliberate New request click. One genuine pilot request remains pending.
-
-The complete [vendor support matrix](docs/VENDORS.md) records representative URLs, observed values, limitations, and maintenance guidance. Treat this as a pilot build until the [acceptance checklist](docs/DEVELOPMENT.md#pilot-acceptance) is completed.
+- Unit tests (`npm test`): 214 pass, including all 20 adapter fixtures, the device API's results, worker persistence, and popup and Options interactions.
+- Browser end-to-end run (`npm run e2e`): 116 checks against the built extension with a simulated plugin API and Chrome's real permission prompt. It cannot prove the toolbar-click permission grant.
+- A pass against the real plugin in a local preview, with Notion stubbed, has been run; see [Development](docs/DEVELOPMENT.md#tests). The extension has not yet been run against real Notion through the plugin, real Discord, real Cloudflare, or Google Chrome itself.
+- Vendor reader checks: see the [vendor matrix](docs/VENDORS.md).
 
 ## Develop
 
@@ -39,12 +43,13 @@ Use Node.js 22.12+ or 24 LTS and npm. From the project directory:
 
 ```powershell
 npm ci --cache .npm-cache
-npm test
-npm run build
+npm run check
+npm run e2e
+npm run package
 ```
 
-`npm run check` runs tests and the production build. `npm run e2e` drives the built extension in a real browser; set `E2E_CHANNEL=msedge` where unsigned browser builds are blocked. `npm run dev` serves the layouts locally, but Chrome extension APIs are available only after loading `dist` as an extension. The regular web preview reports that setup requirement.
+`npm run check` runs tests and the production build. `npm run e2e` drives the built extension in a real browser. `npm run package` writes `release/robotics-part-requests-<version>.zip`, and refuses to package a build with test permissions. `npm run dev` serves the layouts locally, but extension APIs are available only after loading `dist` as an extension.
 
-See [setup and troubleshooting](docs/SETUP.md), [architecture and acceptance](docs/DEVELOPMENT.md), and [vendor maintenance](docs/VENDORS.md).
+See [setup and troubleshooting](docs/SETUP.md), [architecture and tests](docs/DEVELOPMENT.md), and [vendor maintenance](docs/VENDORS.md).
 
-V1 excludes unsupported stores, the Other vendor option, team distribution, Chrome Web Store publication, OAuth, RUSH/SLOW requests, bulk capture, actual purchases, and subsequent order management.
+Not included: unsupported stores, the Other vendor option, Chrome Web Store publication, RUSH/SLOW requests, bulk capture, actual purchases, and subsequent order management.
