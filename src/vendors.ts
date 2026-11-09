@@ -10,7 +10,7 @@ const shopify = {
   productPath: '/products/[^/?#]+', profile: 'shopify' as const,
   productMarker: ['form[action*="/cart/add"]', '.product__info-container', '.product-meta', '.product-single', '#product-price'],
   title: ['.product-single__title', '.product__title h1', '.product-meta__title', '.product-title', 'main h1', 'h1'],
-  price: ['[id^="ProductPrice"]', '.product__info-container .price__sale .price-item--sale', '.product__info-container .price__regular .price-item--regular', '.product-meta__price-list .price', '.product-single__price', '.product__price .price__current', '#product-price .price-item--sale', '#product-price .price-item--regular', '.product-price .money'],
+  price: ['[id^="ProductPrice"]', '.product__info-container .price__sale .price-item--sale', '.product__info-container .price__regular .price-item--regular', '.product-meta__price-list .price', '.product-single__price', '.product__price .price__current', '#product-price .price-item--sale', '#product-price .price-item--regular', '.product-price .money', '.product-form__info-list .price-list .price'],
   sku: ['[id^="ProductSKU"]', '.product-meta__sku-number', '[data-product-sku]', '.product__sku', '.product-single__sku', '[itemprop="sku"]'],
   variants: ['form[action*="/cart/add"] select:not([name="id"]):not([name="quantity"])', 'variant-selects select', 'variant-radios input:checked', 'form[action*="/cart/add"] input[type="radio"]:checked', '.single-option-selector', '.product-options input[type="radio"]:checked', '.swatch input[type="radio"]:checked', '.swatches__form--input:checked', '.options-selection__option-value-input:checked'],
 };
@@ -30,7 +30,8 @@ export const VENDORS: AdapterConfig[] = [
   entry('amazon', 'Amazon', 'amazon.com', {
     profile: 'amazon', productPath: '/(?:dp|gp/product)/[A-Z0-9]{10}',
     title: ['#productTitle'], price: ['#corePriceDisplay_desktop_feature_div .priceToPay .a-offscreen', '#corePrice_feature_div .a-price:not(.a-text-price) .a-offscreen', '#priceblock_ourprice', '#priceblock_dealprice', '#apex_desktop .priceToPay .a-offscreen'],
-    sku: ['#ASIN'], variants: ['#twister .selection', '#twister_feature_div .selection'],
+    // The inline twister names each chosen dimension in its heading, such as "Size: 48 Count (Pack of 1)".
+    sku: ['#ASIN'], variants: ['#twister .selection', '#twister_feature_div .selection', '[id^="inline-twister-expanded-dimension-text-"]'],
     productMarker: ['#productTitle'],
   }),
   entry('aliexpress', 'Ali Express', 'aliexpress.com', {

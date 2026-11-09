@@ -51,6 +51,21 @@ describe('service worker message flow',()=>{
     expect(second.draft).toMatchObject({description:'5mm Hex Shafts - 5mm x 135mm Hex Shaft - 4 Pack',sku:'REV-41-1349-PK4',price:17.5,quantity:3,status:'Incomplete Request',team:'team1'});
     expect(second.edited).toBe(true);expect(second.capture.issues[0]).toMatch(/option chosen on the store page changed/);
   });
+  // WCP lists parts as checkboxes on one address. Ticking a second part, or none, leaves no single part to request.
+  it('shows the page\'s request for one choice instead of a draft for a part no longer chosen, and keeps that draft',async()=>{
+    reselect({description:'10t Steel Double Hub Sprocket',sku:'WCP-1019',price:9.99,variants:[],issues:[]});
+    const first=(await call({type:'capture',tabId:42})).data.record;
+    await call({type:'save-draft',record:{...first,updatedAt:first.updatedAt+1,draft:{...first.draft,quantity:4}}});
+    reselect({kind:'not-product',needsChoice:true,description:'',sku:'',price:null,variants:[],issues:['Select exactly one part checkbox on WCP, then reopen the extension. Do not add it to the cart.']});
+    const second=(await call({type:'capture',tabId:42})).data;
+    expect(second.record).toBeUndefined();expect(second.capture).toMatchObject({kind:'not-product',needsChoice:true});
+    expect(values[`draft:${first.key}`].draft.quantity).toBe(4);
+    reselect({description:'10t Steel Double Hub Sprocket',sku:'WCP-1019',price:9.99,variants:[],issues:[]});
+    const third=(await call({type:'capture',tabId:42})).data.record;expect(third.submissionId).toBe(first.submissionId);expect(third.draft.quantity).toBe(4);
+    // A page that isn't readable for another reason, such as one still loading, keeps showing the draft.
+    reselect({kind:'not-product',description:'',sku:'',price:null,variants:[],issues:['Open a specific product page from this store.']});
+    expect((await call({type:'capture',tabId:42})).data.record.submissionId).toBe(first.submissionId);
+  });
   it('captures and keeps drafts while unpaired, and refuses to send',async()=>{
     delete values.site;delete values.deviceKey;delete values.options;delete values.defaultTeam;
     const first=await call({type:'capture',tabId:42});expect(first.ok).toBe(true);expect(first.data.record.draft.team).toBe('');

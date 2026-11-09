@@ -24,6 +24,8 @@ export interface CaptureResult {
   variants: string[];
   issues: string[];
   kind: 'product' | 'not-product' | 'blocked';
+  /** A product page whose own choices don't name one item yet, such as WCP with no part or two parts ticked. */
+  needsChoice?: boolean;
 }
 export interface Choice { id: string; name: string }
 /** The plugin's GET /options answer, cached so the popup opens without waiting on the network. */

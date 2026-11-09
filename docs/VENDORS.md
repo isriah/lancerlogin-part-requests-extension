@@ -14,6 +14,20 @@ Rechecked **2026-11-08** with the current reader:
 - **WCP:** still correctly requires checking one part first.
 - All other vendors: the captured price was compared with the price displayed on the live page and matched.
 
+Option choices, checked **2026-11-09** with `npm run live:options` through the built 1.0.2 extension (see [Development](DEVELOPMENT.md#tests); the products and choices are in `e2e/options.cases.mjs`). After each choice the popup was reopened on the same tab and compared with the page:
+- **Address changes with the choice** (Shopify `?variant=`, CTRE's combined listings opening another product, BambuLab `?id=`, Amazon's twister opening another ASIN): Ambrosia, AndyMark, CTRE, SDS, Thrifty Bot, West3D, Swyft, BambuLab and Amazon all matched. Shopify themes also rewrite the price and SKU in place, so the reader checks those too.
+- **Address stays the same** (REV, Online Metals stock lengths, WCP part checkboxes, PowerWerx grouped products, Ali Express properties): REV and WCP matched. Online Metals matched as loaded and after choosing 24". After one choice its page keeps a loading cover in an automated profile, and later fresh loads got Cloudflare's check, so other lengths and Custom Cut weren't tested through the extension.
+- **Fixed in 1.0.2:**
+  - **SDS:** its theme rewrites the price's text but not its `content` attribute, which the reader preferred, so every choice kept the first variant's price ($395 instead of $410; $21 instead of $40). The displayed text now wins over `content`.
+  - **Thrifty Bot** (Warehouse theme): the variant data sits under `product.variants`, no price selector matched, and offers' addresses are relative. A variant without a SKU lost its price. "Red" was also dropped from the description because "Vectored" contains it. The reader now reads that data and price, matches offers by `?variant=`, names only whole words, and never fills a SKU-less variant with the product's SKU.
+  - **CTRE / Dawn:** a combination that makes no product empties the form's variant id. The reader now asks for a choice and drops the " - Unavailable" mark.
+  - **PowerWerx grouped products** such as [Assorted Color Powerpole Connectors Kit](https://powerwerx.com/powerpole-connectors-assorted-colors): each version has its own SKU and price, picked by ticking its box. The reader took a related product's "RT-1" and $13.99 whatever was ticked. It now reads the one ticked version, and asks for a choice when none or several are ticked.
+  - **WCP:** with no part or two parts ticked, reopening showed the draft for the part ticked earlier. It now shows the request to tick exactly one; the draft comes back if that part is ticked again.
+  - **Amazon:** the description now includes the inline twister's chosen value, such as "100 Count (AA/LR6)".
+  - Harbor Freight's "Access to this page has been denied" and Cloudflare's "Just a moment..." pages are now reported as access checks.
+- **Not tested, blocked by a bot check:** Ali Express (reCAPTCHA over the item page after the first load), Harbor Freight (press-and-hold check), Home Depot (error page). PowerWerx's other product pages sometimes get Cloudflare's check. On Harbor Freight and Home Depot a choice opens another item's page.
+- **No option choices:** FerrulesDirect and V-Belt Guys (one variant per product), Pololu, McMaster (each part number is its own page).
+
 | Exact Notion label | Representative product | Observed extraction / limitation | Live reader |
 |---|---|---|---|
 | Amazon | [Panel cable](https://www.amazon.com/JSADZKJ-Ultra-Thin-3-1Type-Extension-11-8inch/dp/B0FQNPK1SQ) | ASIN B0FQNPK1SQ; $11.98. Uses the current price's screen-reader text; ignores crossed-out amounts. | Passed |

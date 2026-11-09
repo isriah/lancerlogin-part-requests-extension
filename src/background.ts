@@ -215,7 +215,9 @@ async function captureTab(tabId: number, auto: boolean): Promise<unknown> {
     throw new AppError('Chrome could not read this tab. Wait for the product page to load, then reopen the extension.', 'capture');
   }
   if (!capture || capture.url !== tab.url) { if (previous) return { record: previous }; throw new AppError('The page changed during capture. Reopen the extension.'); }
-  if (capture.kind !== 'product') return previous ? { record: previous } : { capture };
+  // A draft for this address describes the part that was chosen then. When the page now says no single part is chosen, show that
+  // instead of the old part; the draft stays stored, and comes back with its edits if that part is chosen again.
+  if (capture.kind !== 'product') return previous && !capture.needsChoice ? { record: previous } : { capture };
   // Some stores, such as REV, change the chosen option without changing the address. A draft read before that choice
   // describes another variant, so it is read again. A draft that still matches the page is kept as it is, edits and all.
   if (previous && !wantsExpress && sameSelection(previous.capture, capture, !!previous.edited)) return { record: previous };

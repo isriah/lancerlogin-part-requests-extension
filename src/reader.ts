@@ -15,7 +15,11 @@ export function capturePage(config: AdapterConfig): CaptureResult {
     }
     return true;
   };
-  const read = (el: Element): string => clean(el.getAttribute('content') ?? (isInput(el) ? el.value : el.textContent));
+  // What the page shows wins over a `content` attribute: some themes print the first variant's price there and never update it.
+  const read = (el: Element): string => {
+    const shown = clean(isInput(el) ? el.value : el.textContent);
+    return el.tagName === 'META' || !shown ? clean(el.getAttribute('content')) || shown : shown;
+  };
   const first = (selectors: string[], hidden = false): string => {
     for (const s of selectors) for (const el of document.querySelectorAll(s)) {
       if ((hidden || isVisible(el)) && read(el)) return read(el);
@@ -33,7 +37,7 @@ export function capturePage(config: AdapterConfig): CaptureResult {
     return Number.isFinite(n) && n >= 0 ? n : null;
   };
   const bodyText = clean(document.body?.innerText || document.body?.textContent).slice(0, 8000);
-  if (/^error page\b|robot check|verify (?:that )?you(?:'re| are) (?:a )?human|access denied|sorry, you have been blocked|checking your browser|enable javascript and cookies to continue/i.test(`${document.title} ${bodyText}`)) {
+  if (/^(?:error page|just a moment)\b|robot check|verify (?:that )?you(?:'re| are) (?:a )?human|access denied|access to this page has been denied|sorry, you have been blocked|checking your browser|enable javascript and cookies to continue/i.test(`${document.title} ${bodyText}`)) {
     out.kind = 'blocked'; out.issues.push('This page has an access check. Complete it yourself, then reopen the extension.'); return out;
   }
   if (!config.hosts.includes(location.hostname) || /\/(?:cart|checkout|search|account|login)(?:[/?#]|$)/i.test(location.pathname) || !new RegExp(config.productPath, 'i').test(location.pathname)) {
@@ -57,7 +61,7 @@ export function capturePage(config: AdapterConfig): CaptureResult {
   // A family price is not the selected part's price, and more than one is bulk capture.
   if (config.id === 'wcp' && document.querySelector('.product-custom-option[product-sku]')) {
     const checked = [...document.querySelectorAll<HTMLInputElement>('.product-custom-option[product-sku]:checked')];
-    if (checked.length !== 1) { out.issues.push('Select exactly one part checkbox on WCP, then reopen the extension. Do not add it to the cart.'); return out; }
+    if (checked.length !== 1) { out.needsChoice = true; out.issues.push('Select exactly one part checkbox on WCP, then reopen the extension. Do not add it to the cart.'); return out; }
     const part = checked[0];
     out.kind = 'product';
     out.description = clean(part.labels?.[0]?.querySelector('span')?.textContent) || first(config.title);
@@ -141,6 +145,8 @@ export function capturePage(config: AdapterConfig): CaptureResult {
     } else if (isInput(el)) {
       value = clean(el.getAttribute('data-product-size')) || clean(el.labels?.[0]?.textContent) || clean(el.value);
     } else value = read(el);
+    // Dawn marks a choice that has no variant with the rest of the options as " - Unavailable".
+    value = value.replace(/\s+[-–]\s+(?:unavailable|sold out)$/i, '');
     if (value && !/^(default title|default)$/i.test(value)) out.variants.push(value);
   }
   out.variants = [...new Set(out.variants)].filter(v => v.length < 200).slice(0, 12);
@@ -197,16 +203,20 @@ export function capturePage(config: AdapterConfig): CaptureResult {
   }
   let variant: Obj | undefined;
   let shopifyMultiple = false;
+  let variantId = '';
   if (config.profile === 'shopify') {
     const ids = [...document.querySelectorAll<HTMLSelectElement | HTMLInputElement>('form[action*="/cart/add"] [name="id"],variant-selection [name="id"],select.variant-selection__variants')];
     if (ids.some(e => isSelect(e) && (e.value === 'not-selected' || /^(choose|select)\b/i.test(clean(e.selectedOptions[0]?.textContent))))) unselected = true;
     hasVariantControls ||= ids.some(e => isSelect(e) && e.options.length > 1);
-    const variantId = ids.map(e => clean(e.value)).find(v => v && v !== 'not-selected') || new URL(url).searchParams.get('variant') || '';
+    // Dawn empties the form's variant id when the chosen options make no variant that can be bought.
+    if (ids[0] && !isSelect(ids[0]) && !clean(ids[0].value) && hasVariantControls) unselected = true;
+    variantId = ids.map(e => clean(e.value)).find(v => v && v !== 'not-selected') || new URL(url).searchParams.get('variant') || '';
     for (const el of document.querySelectorAll('script[type="application/json"]')) {
       if ((el.textContent?.length ?? 0) > 1_000_000) continue;
       try {
         const data = JSON.parse(el.textContent || '');
-        const vs: Obj[] | undefined = Array.isArray(data?.variants) ? data.variants : Array.isArray(data) && data[0]?.options && data[0]?.price !== undefined ? data : undefined;
+        // Themes publish the product as { variants }, as { product: { variants } } (Warehouse), or as the variant list itself.
+        const vs: Obj[] | undefined = Array.isArray(data?.variants) ? data.variants : Array.isArray(data?.product?.variants) ? data.product.variants : Array.isArray(data) && data[0]?.options && data[0]?.price !== undefined ? data : undefined;
         if (vs) {
           shopifyMultiple ||= vs.length > 1;
           const found = vs.find(v => String(v.id) === variantId);
@@ -221,7 +231,14 @@ export function capturePage(config: AdapterConfig): CaptureResult {
   const domPrice = money(domPriceText);
   const domSku = first(config.sku, config.profile === 'amazon').replace(/^(?:SKU|Item\s*#|Part\s*(?:Number|No\.?))\s*[:#]?\s*/i, '');
   const offers: Obj[] = product?.offers ? [product.offers].flat() : [];
-  const offerMatches = offers.filter(o => clean(o['@type']) !== 'AggregateOffer' && (o.sku && clean(o.sku) === domSku || o.url && clean(o.url) === url));
+  // An offer's address is often relative, and names the variant with ?variant=.
+  const offerFor = (raw: unknown): boolean => {
+    try {
+      const u = new URL(clean(raw), url);
+      return u.href === url || !!variantId && u.origin === location.origin && u.pathname === location.pathname && u.searchParams.get('variant') === variantId;
+    } catch { return false; }
+  };
+  const offerMatches = offers.filter(o => clean(o['@type']) !== 'AggregateOffer' && (o.sku && clean(o.sku) === domSku || !!clean(o.url) && offerFor(o.url)));
   const offer = offerMatches.length === 1 ? offerMatches[0] : offers.length === 1 && offers[0]['@type'] !== 'AggregateOffer' ? offers[0] : undefined;
   const exactVariant = !!variant || offerMatches.length === 1 || bambuSelected || groupVariantExact;
   // A BigCommerce offer always describes the base product, even when its address is this page's.
@@ -229,7 +246,10 @@ export function capturePage(config: AdapterConfig): CaptureResult {
   // An explicit range or installment quote must not fall back to a metadata minimum.
   const unsafeDisplayedPrice = !!domPriceText && domPrice === null;
   out.price = unsafeDisplayedPrice ? null : domPrice ?? (variant && typeof variant.price === 'number' ? variant.price / 100 : metadataSafe ? money(offer?.price ?? (meta('product:price:amount') || meta('og:price:amount'))) : null);
-  out.sku = domSku || clean(variant?.sku) || (metadataSafe ? clean(offer?.sku || product?.sku) : '');
+  // A known variant without a SKU has none: the product's own SKU belongs to another variant, unless that product is the chosen
+  // variant's own entry in the store's metadata, as BambuLab's is.
+  const productIsVariant = bambuSelected || groupVariantExact;
+  out.sku = domSku || clean(variant?.sku) || (metadataSafe && (!variant || productIsVariant) ? clean(offer?.sku || (offerMatches.length && !productIsVariant ? '' : product?.sku)) : '');
   if (config.profile === 'bigcommerce') {
     // Some themes publish the internal product number as the SKU when the product has none.
     if (productId && out.sku === productId) out.sku = '';
@@ -239,6 +259,19 @@ export function capturePage(config: AdapterConfig): CaptureResult {
       out.sku = optionSku; out.price = null;
       out.issues.push('The store page was still updating the price. Wait a moment, then reopen the extension, or check the SKU and price.');
     }
+  }
+  // A PowerWerx grouped product lists versions, each with its own SKU and price, and the student picks one by ticking its box. The
+  // page's own SKU and price fields then belong to related products further down, never to this one.
+  const powerwerxRows = config.id === 'powerwerx' ? [...document.querySelectorAll('._variantWrapper')].filter(r => r.querySelector('a.groupedAssocProdPdpAnchor[data-sku]')) : [];
+  if (powerwerxRows.length) {
+    const ticked = powerwerxRows.filter(r => r.querySelector<HTMLInputElement>('input.qtycb')?.checked);
+    const chosen = ticked.length === 1 ? ticked[0].querySelector<HTMLElement>('a.groupedAssocProdPdpAnchor') : null;
+    out.sku = clean(chosen?.dataset.sku);
+    out.price = chosen ? money(chosen.dataset.price) : null;
+    const version = /\(([^()]+)\)$/.exec(clean(chosen?.dataset.name))?.[1];
+    if (version) out.variants.push(version);
+    if (ticked.length > 1) out.issues.push('Several versions are ticked on the store page. Tick only the one you need, then reopen the extension.');
+    else if (!chosen) unselected = true;
   }
   if (config.id === 'swyft') {
     const scope = document.querySelector('main h1')?.parentElement?.parentElement;
@@ -282,7 +315,9 @@ export function capturePage(config: AdapterConfig): CaptureResult {
   if (homeDepotDisplayed) out.currency = 'USD';
   if ((out.price !== null || out.currency) && out.currency !== 'USD') out.issues.push(out.currency ? `Price is in ${out.currency}. Enter a USD price and confirm it before submitting.` : 'Currency could not be confirmed. Enter a USD price and confirm it before submitting.');
   out.variants = [...new Set(out.variants)].filter((v, _, all) => !all.some(other => other !== v && (other.split(' / ').includes(v) || other.endsWith(`: ${v}`))));
-  const extras = out.variants.filter(v => !out.description.toLowerCase().includes(v.toLowerCase()));
+  // Only whole words count as already named: "Red" is not in "Vectored".
+  const named = (text: string, value: string): boolean => new RegExp(`(?:^|[^a-z\\d])${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:$|[^a-z\\d])`, 'i').test(text);
+  const extras = out.variants.filter(v => !named(out.description, v));
   if (extras.length) out.description += ` - ${extras.join(' / ')}`;
   if (out.price === null) out.issues.push('Unit price needs your review.');
   if (!out.sku) out.issues.push('SKU was not confirmed; it is optional.');
