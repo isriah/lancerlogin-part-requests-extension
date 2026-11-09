@@ -1,4 +1,5 @@
 import { AppError } from './errors';
+import { parseBranding } from './brand';
 import { apiBase } from './pairing';
 import { isVersion } from './version';
 import type { DeviceOptions, Repeat, RequestDraft } from './types';
@@ -8,6 +9,8 @@ interface Reply { status: number; body: Json; retryAfter: number | null; parsed:
 export const REQUEST_TIMEOUT_MS = 40_000;
 /** A student is waiting on Unpair, which goes ahead on this computer either way. */
 export const REVOKE_TIMEOUT_MS = 10_000;
+/** Team colors are decoration, and the checks before an Express send have a student waiting. Neither should hold anything up. */
+export const QUICK_TIMEOUT_MS = 10_000;
 const NO_ANSWER = 'The site did not confirm this request. It may already exist.';
 const CONFLICT = 'A request with this ID already exists with different details. Check the ordering database in Notion.';
 
@@ -96,6 +99,16 @@ export class PluginClient {
     if (reply.status === 503 && reply.body.code === 'update_maintenance') return new AppError('The site is updating. Try again in a minute.', 'update_maintenance', false, true);
     return new AppError(reply.parsed ? text(reply.body.error, fallback) : fallback, text(reply.body.code, reply.parsed ? 'refused' : 'not_a_site'), false, true);
   }
+  /**
+   * The team's colors and name from Core's public status. It never sends the key, which this route has no use for. `null` means
+   * the site didn't answer, or answered with anything that fails validation.
+   */
+  async branding() {
+    try {
+      const response = await this.transport(`${this.origin}/api/setup/status`, { method: 'GET', credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(QUICK_TIMEOUT_MS) });
+      return response.ok ? parseBranding(await response.json()) : null;
+    } catch { return null; }
+  }
   async pair(pin: string, deviceLabel: string): Promise<{ deviceKey: string; memberName: string }> {
     const reply = await this.call('/pair', 'POST', { pin, ...(deviceLabel ? { deviceLabel } : {}) });
     if (reply.status === 201 && typeof reply.body.deviceKey === 'string' && /^[A-Za-z0-9_-]{43}$/.test(reply.body.deviceKey)) {
@@ -103,8 +116,8 @@ export class PluginClient {
     }
     throw this.refused(reply, `${this.origin} did not answer like a site with Part Requests. Check the address from Discord.`);
   }
-  async options(): Promise<DeviceOptions> {
-    const reply = await this.call('/options', 'GET');
+  async options(timeoutMs = REQUEST_TIMEOUT_MS): Promise<DeviceOptions> {
+    const reply = await this.call('/options', 'GET', undefined, timeoutMs);
     if (reply.status !== 200 || !reply.parsed || !Array.isArray(reply.body.teams) || !Array.isArray(reply.body.recipients)) throw this.refused(reply, 'The site did not return the team list. Try again shortly.');
     const choices = (list: Json[]) => list.filter(c => c && typeof c.id === 'string').map(c => ({ id: c.id, name: String(c.name ?? c.id) }));
     return {
@@ -125,8 +138,8 @@ export class PluginClient {
     const reply = await this.call('/recipient', 'POST', { notionUserId });
     if (reply.status !== 200) throw this.refused(reply, 'The site did not save your name. Try again shortly.');
   }
-  async check(url: string, sku: string): Promise<Repeat[]> {
-    const reply = await this.call('/check', 'POST', { url, sku });
+  async check(url: string, sku: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Repeat[]> {
+    const reply = await this.call('/check', 'POST', { url, sku }, timeoutMs);
     if (reply.status !== 200) throw this.refused(reply, 'The repeat check did not run.');
     return repeatsFrom(reply.body.repeats);
   }

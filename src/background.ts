@@ -1,11 +1,13 @@
-import { PluginClient, type CreateOutcome } from './client';
+import type { Brand, Theme } from './brand';
+import { PluginClient, QUICK_TIMEOUT_MS, wireDraft, type CreateOutcome } from './client';
 import { AppError } from './errors';
+import { ALREADY_SENT, CHECK_FAILED, pageReasons, repeatReason } from './express';
 import { cleanDeviceLabel, manifestAllowsLocalHttp, normalizePin, normalizeSiteAddress, originPattern } from './pairing';
 import { capturePage } from './reader';
 import { SubmissionManager, type Created } from './submissions';
 import { validateDraft } from './validate';
 import { vendorForUrl } from './vendors';
-import type { DeviceOptions, DraftRecord, Message, SettingsView, Submission } from './types';
+import type { CaptureResult, DeviceOptions, DraftRecord, ExpressReason, Message, RequestDraft, SettingsView, Submission, SubmissionFacts } from './types';
 
 /** Retries of one create while the site reports maintenance. At Core's 30 seconds, that is two minutes. */
 const MAINTENANCE_RETRIES = 4;
@@ -14,6 +16,8 @@ const MAX_RETRY_WAIT_SECONDS = 120;
 const PENDING_POLLS = 30;
 /** A pending record not touched for this long has no worker behind it. */
 const STALE_MS = 30_000;
+/** Team colors are asked for at pairing, then at most this often, whether or not the last try worked. */
+const BRAND_REFRESH_MS = 24 * 60 * 60 * 1000;
 
 interface Site { origin: string; memberName: string; deviceLabel: string; pairedAt: number; expired?: boolean }
 
@@ -30,13 +34,35 @@ const manager = new SubmissionManager({
 });
 /** Creates running in this worker. A pending record not in here was left behind by a worker that stopped. */
 const active = new Set<string>();
+/** One capture per tab at a time, so rapid reopening shares a draft and a submission ID instead of racing to make two. */
+const captures = new Map<number, Promise<unknown>>();
+function oneAtATime<T>(tabId: number, work: () => Promise<T>): Promise<T> {
+  const next = (captures.get(tabId) ?? Promise.resolve()).then(work, work);
+  captures.set(tabId, next.catch(() => undefined));
+  return next;
+}
+let brandRefresh: Promise<void> | undefined;
 
 async function view(): Promise<SettingsView> {
-  const [site, key, options, defaultTeam] = await Promise.all([get<Site>('site'), get<string>('deviceKey'), get<DeviceOptions>('options'), get<string>('defaultTeam')]);
+  const [site, key, options, defaultTeam, brand, theme, expressEnabled] = await Promise.all([get<Site>('site'), get<string>('deviceKey'), get<DeviceOptions>('options'), get<string>('defaultTeam'), get<Brand>('brand'), get<Theme>('theme'), get<boolean>('expressEnabled')]);
   return {
     pairing: !site ? 'unpaired' : key && !site.expired ? 'paired' : 'expired',
     origin: site?.origin, memberName: site?.memberName, deviceLabel: site?.deviceLabel, options, defaultTeam: defaultTeam || '',
+    brand: site ? brand : undefined, theme: theme === 'light' ? 'light' : 'dark', expressEnabled: expressEnabled === true,
   };
+}
+/** Asks the site for its colors if it's due. Any failure keeps the last good colors. It never rejects. */
+function refreshBrand(): Promise<void> {
+  brandRefresh ??= (async () => {
+    const [site, last] = await Promise.all([get<Site>('site'), get<number>('brandAttemptAt')]);
+    if (!site || !await chrome.permissions.contains({ origins: [originPattern(site.origin)] })) return;
+    if (typeof last === 'number' && Date.now() - last < BRAND_REFRESH_MS) return;
+    await put('brandAttemptAt', Date.now());
+    const brand = await new PluginClient(site.origin).branding();
+    // Unpair or a new site may have happened meanwhile, and those colors must not come back.
+    if (brand && (await get<Site>('site'))?.origin === site.origin) await put('brand', { ...brand, checkedAt: Date.now() } satisfies Brand);
+  })().catch(() => undefined).finally(() => { brandRefresh = undefined; });
+  return brandRefresh;
 }
 /** The key is forgotten, the site is kept so pairing again is one step, and drafts are untouched. */
 async function pairAgain(): Promise<void> {
@@ -59,11 +85,14 @@ async function device<T>(work: (client: PluginClient, site: Site) => Promise<T>)
     throw error;
   }
 }
-async function refreshOptions(): Promise<SettingsView> {
-  const options = await device(client => client.options());
-  await put('options', options);
-  const site = await get<Site>('site');
-  if (site && options.memberName && site.memberName !== options.memberName) await put('site', { ...site, memberName: options.memberName });
+async function refreshOptions(timeoutMs?: number): Promise<SettingsView> {
+  const colors = refreshBrand();
+  try {
+    const options = await device(client => client.options(timeoutMs));
+    await put('options', options);
+    const site = await get<Site>('site');
+    if (site && options.memberName && site.memberName !== options.memberName) await put('site', { ...site, memberName: options.memberName });
+  } finally { await colors; }
   return view();
 }
 function validKey(key: unknown): asserts key is string {
@@ -77,6 +106,121 @@ async function recordFor(key: string): Promise<DraftRecord> {
   const record = await get<DraftRecord>(`draft:${key}`);
   if (!record) throw new AppError('This draft is no longer available. Reopen the extension.');
   return record;
+}
+const blankDraft = (capture: CaptureResult, defaultTeam: string | undefined, options: DeviceOptions | undefined): RequestDraft => ({
+  description: capture.description, url: capture.url, sku: capture.sku, price: capture.price, quantity: 1, status: 'NORMAL Request', team: defaultTeam || '', recipient: options?.defaultRecipientId || '', currencyConfirmed: capture.currency === 'USD' || !capture.currency && capture.price === null,
+});
+function factsFor(draft: RequestDraft, vendor: string, options: DeviceOptions | undefined): SubmissionFacts {
+  const name = (list: { id: string; name: string }[] | undefined, id: string) => list?.find(c => c.id === id)?.name || '';
+  return { description: draft.description.slice(0, 300), store: vendorForUrl(draft.url)?.label || vendor, quantity: draft.quantity, price: draft.price, team: name(options?.teams, draft.team), recipient: name(options?.recipients, draft.recipient) };
+}
+/** This URL has a receipt or an unsettled submission from any tab. Failed ones don't count, since nothing was created. */
+async function sentFromThisBrowser(url: string): Promise<boolean> {
+  const all = await chrome.storage.local.get(null);
+  const sameUrl = (key: unknown) => typeof key === 'string' && key.slice(key.indexOf(':') + 1) === url;
+  return Object.entries(all).some(([name, value]) => name.startsWith('receipt:') ? sameUrl(name.slice('receipt:'.length))
+    : name.startsWith('submission:') && !!value && (value as Submission).state !== 'failed' && sameUrl((value as Submission).draftKey));
+}
+/** Everything that has to hold for a send with no click, using the freshest lists. Any failure here means the form. */
+async function expressReasons(capture: CaptureResult): Promise<{ draft: RequestDraft; options: DeviceOptions | undefined; reasons: ExpressReason[] }> {
+  const reasons: ExpressReason[] = [];
+  let reachable = true;
+  try { await refreshOptions(QUICK_TIMEOUT_MS); }
+  catch (error) {
+    reachable = false;
+    reasons.push({ code: 'issue', text: error instanceof AppError ? error.message : 'The site could not be reached to check your defaults.' });
+  }
+  const [options, team] = await Promise.all([get<DeviceOptions>('options'), get<string>('defaultTeam')]);
+  const draft = blankDraft(capture, team, options);
+  reasons.push(...pageReasons(capture, draft, options));
+  if (await sentFromThisBrowser(capture.url)) reasons.push(ALREADY_SENT);
+  if (reachable) {
+    try {
+      const repeats = await device(client => client.check(draft.url, draft.sku.slice(0, 2000), QUICK_TIMEOUT_MS));
+      if (repeats.length) reasons.push(repeatReason(repeats));
+    } catch { reasons.push(CHECK_FAILED); }
+  }
+  return { draft, options, reasons };
+}
+/**
+ * The send with no click. It uses the same submission ID, queue and retries as Create request, and the worker owns it, so closing the
+ * popup doesn't cancel it. Only a recorded refusal or a send that never reached Notion returns to the form; nothing is resent here.
+ */
+async function startExpressSend(record: DraftRecord, options: DeviceOptions | undefined): Promise<Submission> {
+  const id = record.submissionId;
+  const facts = factsFor(record.draft, record.capture.vendor, options);
+  const backToForm = (submissionId: string, text: string) => put(`draft:${record.key}`, { ...record, submissionId, updatedAt: Date.now(), express: { state: 'attempted', reasons: [{ code: 'send-failed', text }] } } satisfies DraftRecord);
+  active.add(id);
+  let stored!: () => void;
+  const pendingStored = new Promise<void>(done => { stored = done; });
+  const finished = manager.submit(id, record.key, () => { stored(); return device(client => sendOnce(client, record)); }, { express: true, facts })
+    .then(async result => {
+      if (result.state === 'success') await finishSuccess(record.key, id);
+      else if (result.state === 'failed' && result.recorded) await backToForm(crypto.randomUUID(), result.message || 'Notion refused this request, so nothing was created.');
+    })
+    .catch(async error => { await backToForm(id, error instanceof AppError ? error.message : 'The request could not be sent. Nothing was created.'); })
+    .finally(() => { active.delete(id); stored(); });
+  // Another tab's send can hold the queue for minutes, and the popup shouldn't wait on it to say what's happening.
+  await Promise.race([pendingStored, finished, sleep(1500)]);
+  const now = await get<Submission>(`submission:${id}`);
+  // Refused already: let the draft's reason finish saving, so the popup goes straight to the form.
+  if (now?.state === 'failed') await finished;
+  return now ?? { id, draftKey: record.key, state: 'pending', updatedAt: Date.now(), express: true, facts };
+}
+async function captureTab(tabId: number, auto: boolean): Promise<unknown> {
+  if (!Number.isInteger(tabId)) throw new AppError('Open a product in a regular Chrome tab.');
+  const tab = await chrome.tabs.get(tabId);
+  const vendor = vendorForUrl(tab.url || '');
+  if (!vendor) return { unsupported: true };
+  const key = `${tab.id}:${tab.url}`;
+  validKey(key);
+  const receipt = await get<{ submissionId: string }>(`receipt:${key}`);
+  if (receipt) return { key, submission: await get<Submission>(`submission:${receipt.submissionId}`) };
+  const previous = await get<DraftRecord>(`draft:${key}`);
+  if (previous) {
+    const stored = await get<Submission>(`submission:${previous.submissionId}`);
+    const submission = stored && await reconciled(stored);
+    // The server may have just confirmed it, which clears the draft.
+    if (submission) return submission.state === 'success' ? { key, submission } : { record: previous, submission };
+    // Still waiting its turn in the queue behind another tab's send.
+    if (active.has(previous.submissionId)) return { record: previous, submission: { id: previous.submissionId, draftKey: key, state: 'pending', updatedAt: Date.now(), express: true } satisfies Submission };
+  }
+  const settings = await view();
+  const wantsExpress = auto && settings.expressEnabled === true && settings.pairing === 'paired' && !previous?.edited && (!previous?.express || previous.express.state === 'fallback');
+  if (previous && !wantsExpress) return { record: previous };
+  let capture;
+  try {
+    const results = await chrome.scripting.executeScript({ target: { tabId }, world: 'ISOLATED', func: capturePage, args: [vendor] });
+    capture = results[0]?.result;
+  } catch {
+    // A draft already here is still good, and there's nothing to read a new answer from.
+    if (previous) return { record: previous };
+    throw new AppError('Chrome could not read this tab. Wait for the product page to load, then reopen the extension.', 'capture');
+  }
+  if (!capture || capture.url !== tab.url) { if (previous) return { record: previous }; throw new AppError('The page changed during capture. Reopen the extension.'); }
+  if (capture.kind !== 'product') return previous ? { record: previous } : { capture };
+  if (!wantsExpress) {
+    const [options, defaultTeam] = await Promise.all([get<DeviceOptions>('options'), get<string>('defaultTeam')]);
+    // Pressing New request or Discard is a deliberate choice of the form, and stays that way until the draft is gone.
+    const record: DraftRecord = { key, submissionId: crypto.randomUUID(), capture, updatedAt: Date.now(), draft: blankDraft(capture, defaultTeam, options), ...(auto ? {} : { express: { state: 'manual', reasons: [] } }) };
+    await put(`draft:${key}`, record);
+    return { record };
+  }
+  const { draft, options, reasons } = await expressReasons(capture);
+  // Keeps the ID, which no submission has used yet, when looking at an unedited draft again.
+  const record: DraftRecord = { key, submissionId: previous?.submissionId ?? crypto.randomUUID(), capture, updatedAt: Math.max(Date.now(), (previous?.updatedAt ?? 0) + 1), draft };
+  if (reasons.length) {
+    // A foreign amount must not sit in a field labeled USD while a student reads why it wasn't sent.
+    if (reasons.some(r => r.code === 'currency')) record.draft = { ...draft, price: null, currencyConfirmed: false };
+    record.express = { state: 'fallback', reasons };
+    await put(`draft:${key}`, record);
+    return { record };
+  }
+  // Written before anything is sent. If the worker stops right here, the student sees the form, never a second send.
+  record.express = { state: 'attempted', reasons: [] };
+  await put(`draft:${key}`, record);
+  const submission = await startExpressSend(record, options);
+  return submission.state === 'failed' ? { record: await get<DraftRecord>(`draft:${key}`) ?? record } : { record, submission };
 }
 async function finishSuccess(key: string, submissionId: string): Promise<void> {
   await put(`receipt:${key}`, { submissionId });
@@ -166,11 +310,13 @@ async function handle(message: Message): Promise<unknown> {
         throw error;
       }
       if (previous && previous.origin !== origin) {
-        await chrome.storage.local.remove(['options', 'defaultTeam']);
+        await chrome.storage.local.remove(['options', 'defaultTeam', 'brand', 'expressEnabled']);
         await chrome.permissions.remove({ origins: [originPattern(previous.origin)] }).catch(() => undefined);
       }
       const site: Site = { origin, memberName: result.memberName, deviceLabel: label, pairedAt: Date.now() };
       await chrome.storage.local.set({ deviceKey: result.deviceKey, site });
+      // Pairing always asks for the colors, however recently they were read.
+      await chrome.storage.local.remove('brandAttemptAt');
       // Pairing has succeeded either way. The page shows the team list when it loads.
       await refreshOptions().catch(() => undefined);
       return view();
@@ -181,11 +327,20 @@ async function handle(message: Message): Promise<unknown> {
       let revokedOnSite = false;
       try { revokedOnSite = await (await paired()).client.revokeSelf(); }
       catch { /* Offline, expired or no permission: Options says an Admin may need to remove the device. */ }
-      await chrome.storage.local.remove(['deviceKey', 'site', 'options', 'defaultTeam']);
+      await chrome.storage.local.remove(['deviceKey', 'site', 'options', 'defaultTeam', 'brand', 'brandAttemptAt', 'expressEnabled']);
       if (site) await chrome.permissions.remove({ origins: [originPattern(site.origin)] }).catch(() => undefined);
       return { ...await view(), revokedOnSite };
     }
     case 'refresh-options': return refreshOptions();
+    case 'set-theme':
+      if (message.theme !== 'dark' && message.theme !== 'light') throw new AppError('Unknown theme.');
+      await put('theme', message.theme);
+      return view();
+    case 'set-express':
+      if (typeof message.enabled !== 'boolean') throw new AppError('Unknown setting.');
+      if (message.enabled && (await view()).pairing !== 'paired') throw new AppError('Pair this device first.');
+      await put('expressEnabled', message.enabled);
+      return view();
     case 'save-defaults': {
       const options = await get<DeviceOptions>('options');
       if (!options?.teams.some(t => t.id === message.defaultTeam)) throw new AppError('Choose a team.');
@@ -198,37 +353,7 @@ async function handle(message: Message): Promise<unknown> {
       if (typeof message.url !== 'string' || typeof message.sku !== 'string' || !vendorForUrl(message.url)) return { repeats: [] };
       return { repeats: await device(client => client.check(message.url, message.sku.slice(0, 2000))) };
     }
-    case 'capture': {
-      if (!Number.isInteger(message.tabId)) throw new AppError('Open a product in a regular Chrome tab.');
-      const tab = await chrome.tabs.get(message.tabId);
-      const vendor = vendorForUrl(tab.url || '');
-      if (!vendor) return { unsupported: true };
-      const key = `${tab.id}:${tab.url}`;
-      validKey(key);
-      const receipt = await get<{ submissionId: string }>(`receipt:${key}`);
-      if (receipt) return { key, submission: await get<Submission>(`submission:${receipt.submissionId}`) };
-      const previous = await get<DraftRecord>(`draft:${key}`);
-      if (previous) {
-        const stored = await get<Submission>(`submission:${previous.submissionId}`);
-        const submission = stored && await reconciled(stored);
-        // The server may have just confirmed it, which clears the draft.
-        return submission?.state === 'success' ? { key, submission } : { record: previous, submission };
-      }
-      let capture;
-      try {
-        const results = await chrome.scripting.executeScript({ target: { tabId: message.tabId }, world: 'ISOLATED', func: capturePage, args: [vendor] });
-        capture = results[0]?.result;
-      } catch { throw new AppError('Chrome could not read this tab. Wait for the product page to load, then reopen the extension.', 'capture'); }
-      if (!capture || capture.url !== tab.url) throw new AppError('The page changed during capture. Reopen the extension.');
-      if (capture.kind !== 'product') return { capture };
-      const [options, defaultTeam] = await Promise.all([get<DeviceOptions>('options'), get<string>('defaultTeam')]);
-      const record: DraftRecord = {
-        key, submissionId: crypto.randomUUID(), capture, updatedAt: Date.now(),
-        draft: { description: capture.description, url: capture.url, sku: capture.sku, price: capture.price, quantity: 1, status: 'NORMAL Request', team: defaultTeam || '', recipient: options?.defaultRecipientId || '', currencyConfirmed: capture.currency === 'USD' || !capture.currency && capture.price === null },
-      };
-      await put(`draft:${key}`, record);
-      return { record };
-    }
+    case 'capture': return oneAtATime(message.tabId, () => captureTab(message.tabId, message.auto === true));
     case 'save-draft': {
       const input = message.record;
       validKey(input?.key); validId(input?.submissionId);
@@ -240,7 +365,8 @@ async function handle(message: Message): Promise<unknown> {
         if (await get<Submission>(`submission:${previous.submissionId}`)) throw new AppError('This submission is already recorded. Use New request or the retry action.');
         if (!Number.isFinite(input.updatedAt) || JSON.stringify(input.draft).length > 12000) throw new AppError('The request is invalid or too long.');
         if (input.updatedAt <= previous.updatedAt) return true;
-        await put(`draft:${input.key}`, { ...previous, draft: input.draft, updatedAt: input.updatedAt }); return true;
+        const edited = previous.edited || JSON.stringify(wireDraft(previous.draft)) !== JSON.stringify(wireDraft(input.draft));
+        await put(`draft:${input.key}`, { ...previous, draft: input.draft, updatedAt: input.updatedAt, ...(edited ? { edited } : {}) }); return true;
       });
       draftWrites = write.catch(() => undefined);
       return write;
@@ -268,9 +394,11 @@ async function handle(message: Message): Promise<unknown> {
       const options = await get<DeviceOptions>('options');
       const errors = validateDraft(record.draft, options);
       if (errors.length) throw new AppError(errors.join(' '));
+      // A student has chosen to send this one, so Express addition leaves it alone from now on, whatever comes back.
+      if (record.express?.state !== 'manual') await put(`draft:${record.key}`, { ...record, express: { state: 'manual', reasons: record.express?.reasons ?? [] } } satisfies DraftRecord);
       active.add(record.submissionId);
       try {
-        const result = await manager.submit(record.submissionId, record.key, () => device(client => sendOnce(client, record)));
+        const result = await manager.submit(record.submissionId, record.key, () => device(client => sendOnce(client, record)), { facts: factsFor(record.draft, record.capture.vendor, options) });
         if (result.state === 'success') {
           await finishSuccess(record.key, record.submissionId);
           // A member's first chosen person becomes their default, if they skipped choosing one in settings.
@@ -288,12 +416,15 @@ async function handle(message: Message): Promise<unknown> {
       const status = await get<Submission>(`submission:${record.submissionId}`);
       if (status?.state === 'pending' && (active.has(status.id) || Date.now() - status.updatedAt < STALE_MS)) throw new AppError('The request is still being sent. Wait for the result.');
       if (status && ['pending', 'uncertain'].includes(status.state) && message.acknowledgeUncertain !== true) throw new AppError('Check Notion and confirm the request was not created before retrying.');
+      // Retrying is the student's choice, made on the form. Express addition never picks this draft up again by itself.
+      const chosen: DraftRecord = { ...record, express: { state: 'manual', reasons: [] } };
       // The server allows one create per ID, so an ID with no recorded result is the safest one to send again. A recorded ID is used up.
       if (status && !status.recorded) {
         await chrome.storage.local.remove(`submission:${status.id}`);
-        return record;
+        await put(`draft:${record.key}`, chosen);
+        return chosen;
       }
-      const next = { ...record, submissionId: crypto.randomUUID(), updatedAt: Date.now() };
+      const next = { ...chosen, submissionId: crypto.randomUUID(), updatedAt: Date.now() };
       await put(`draft:${record.key}`, next); return next;
     }
     default: throw new AppError('Unknown extension operation.');

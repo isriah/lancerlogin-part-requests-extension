@@ -11,7 +11,7 @@ const site={origin:SITE,memberName:'Test Student A',deviceLabel:'Shop laptop',pa
 function send(...replies:(Response|Error)[]){let n=0;vi.stubGlobal('fetch',vi.fn(async()=>{const reply=replies[Math.min(n++,replies.length-1)];if(reply instanceof Error)throw reply;return reply.clone();}));}
 beforeEach(async()=>{
   vi.resetModules();hasPermission=true;values={site,deviceKey:DEVICE_KEY,options:deviceOptions(),defaultTeam:'team1'};
-  chromeMock={storage:{local:{setAccessLevel:vi.fn(async()=>{}),get:vi.fn(async(key:string)=>structuredClone({[key]:values[key]})),set:vi.fn(async(data:Record<string,unknown>)=>Object.assign(values,structuredClone(data))),remove:vi.fn(async(keys:string|string[])=>{for(const key of [keys].flat())delete values[key];})}},permissions:{contains:vi.fn(async()=>hasPermission),remove:vi.fn(async()=>true)},runtime:{id:'extension-id',getManifest:()=>({optional_host_permissions:['https://*/*']}),getURL:(p:string)=>`chrome-extension://extension-id/${p}`,onMessage:{addListener:(l:typeof listener)=>{listener=l;}}},tabs:{get:vi.fn(async()=>({id:42,url:record().draft.url}))},scripting:{executeScript:vi.fn(async()=>[{result:record().capture}])}};
+  chromeMock={storage:{local:{setAccessLevel:vi.fn(async()=>{}),get:vi.fn(async(key:string|null)=>structuredClone(key===null?values:{[key]:values[key]})),set:vi.fn(async(data:Record<string,unknown>)=>Object.assign(values,structuredClone(data))),remove:vi.fn(async(keys:string|string[])=>{for(const key of [keys].flat())delete values[key];})}},permissions:{contains:vi.fn(async()=>hasPermission),remove:vi.fn(async()=>true)},runtime:{id:'extension-id',getManifest:()=>({optional_host_permissions:['https://*/*']}),getURL:(p:string)=>`chrome-extension://extension-id/${p}`,onMessage:{addListener:(l:typeof listener)=>{listener=l;}}},tabs:{get:vi.fn(async()=>({id:42,url:record().draft.url}))},scripting:{executeScript:vi.fn(async()=>[{result:record().capture}])}};
   vi.stubGlobal('chrome',chromeMock);send(created());
   await import('../src/background');
 });
@@ -219,5 +219,218 @@ describe('pairing and defaults',()=>{
     send(response({...deviceOptions(),minimumExtensionVersion:'0.3.0',updateUrl:'https://downloads.example.test/releases',databaseLink:'https://www.notion.so/abc'}));
     expect((await call({type:'refresh-options'})).data.options).toMatchObject({minimumExtensionVersion:'0.3.0',updateUrl:'https://downloads.example.test/releases',databaseLink:'https://www.notion.so/abc'});
     expect(values.options.databaseLink).toBe('https://www.notion.so/abc');
+  });
+});
+describe('Express addition',()=>{
+  const key='42:https://www.revrobotics.com/rev-21-1651/';
+  const url='https://www.revrobotics.com/rev-21-1651/';
+  type Route=(path:string,init:any)=>Response|Error|undefined;
+  let posts:any[],checks:number,route:Route;
+  const plain=(path:string,init:any):Response=>{
+    if(path.endsWith('/options'))return response({memberName:'Test Student A',teams:deviceOptions().teams,recipients:deviceOptions().recipients,defaultRecipientId:'person1'});
+    if(path.endsWith('/check')){checks++;return response({repeats:[]});}
+    if(path.endsWith('/requests')){posts.push(JSON.parse(init.body));return created();}
+    return response({error:'Not found',code:'not_found'},404);
+  };
+  const open=(auto=true)=>call({type:'capture',tabId:42,auto});
+  const idle=async()=>{for(let i=0;i<8;i++)await new Promise(done=>setTimeout(done));};
+  beforeEach(()=>{
+    posts=[];checks=0;route=()=>undefined;values.expressEnabled=true;values.brandAttemptAt=Date.now();
+    vi.stubGlobal('fetch',vi.fn(async(path:string,init:any)=>{const reply=route(path,init)??plain(path,init);if(reply instanceof Error)throw reply;return reply.clone();}));
+  });
+  const capture=(extra={})=>{chromeMock.scripting.executeScript=vi.fn(async()=>[{result:{...record().capture,...extra}}]);};
+  it('is off by default, so a toolbar click only shows the form',async()=>{
+    delete values.expressEnabled;expect((await call({type:'settings'})).data.expressEnabled).toBe(false);
+    const reply=await open();expect(reply.data.submission).toBeUndefined();expect(reply.data.record.express).toBeUndefined();await idle();expect(posts).toHaveLength(0);expect(checks).toBe(0);
+  });
+  it('sends once, as NORMAL quantity 1, with the draft\'s own submission ID, when everything holds',async()=>{
+    const reply=await open();const id=reply.data.record.submissionId;await vi.waitFor(()=>expect(values[`receipt:${key}`]).toBeDefined());
+    expect(posts).toHaveLength(1);expect(posts[0].submissionId).toBe(id);expect(posts[0].draft).toMatchObject({status:'NORMAL Request',quantity:1,team:'team1',recipient:'person1',price:30,currencyConfirmed:true,url});
+    expect(checks).toBe(1);expect(values[`submission:${id}`]).toMatchObject({state:'success',express:true,facts:{store:'REV',team:'Robotics',recipient:'Test Student A',quantity:1,price:30}});
+  });
+  it('shows the receipt on reopening, with no second send',async()=>{
+    await open();await vi.waitFor(()=>expect(values[`receipt:${key}`]).toBeDefined());
+    const again=await open();expect(again.data.submission.state).toBe('success');expect(again.data.record).toBeUndefined();await idle();expect(posts).toHaveLength(1);expect(checks).toBe(1);
+  });
+  it('sends one request however fast the popup reopens',async()=>{
+    const replies=await Promise.all([open(),open(),open(),open()]);await vi.waitFor(()=>expect(values[`receipt:${key}`]).toBeDefined());await idle();
+    expect(posts).toHaveLength(1);expect(new Set(replies.filter(r=>r.data.submission).map(r=>r.data.submission.id)).size).toBe(1);
+  });
+  it('keeps going when the popup goes away: the send belongs to the worker',async()=>{
+    let finish!:(r:Response)=>void;const answer=new Promise<Response>(done=>{finish=done;});
+    vi.stubGlobal('fetch',vi.fn(async(path:string,init:any)=>{if(path.endsWith('/requests')){posts.push(JSON.parse(init.body));return answer;}return plain(path,init).clone();}));
+    const reply=await open();expect(reply.data.submission).toMatchObject({state:'pending',express:true});
+    const during=await open();expect(during.data.submission.state).toBe('pending');expect(posts).toHaveLength(1);
+    finish(created());await vi.waitFor(()=>expect(values[`receipt:${key}`]).toBeDefined());expect(posts).toHaveLength(1);
+  });
+  it.each([
+    ['a missing price','price',{price:null,currency:'',issues:['Unit price needs your review.']}],
+    ['an unselected option','variant',{price:null,issues:['Select all product options on the store page, or enter the exact variant and price manually.','Unit price needs your review.']}],
+    ['another currency','currency',{currency:'EUR',issues:['Price is in EUR. Enter a USD price and confirm it before submitting.']}],
+    ['any other reader issue','issue',{issues:['Confirm the price and selling unit on McMaster.']}],
+    ['no description','description',{description:'  '}],
+  ])('falls back to the form for %s',async(_name,code,extra)=>{
+    capture(extra);const reply=await open();await idle();
+    expect(reply.data.submission).toBeUndefined();expect(reply.data.record.express.state).toBe('fallback');expect(reply.data.record.express.reasons.map((r:any)=>r.code)).toContain(code);expect(posts).toHaveLength(0);
+  });
+  it('a missing optional SKU alone doesn\'t stop it',async()=>{
+    capture({sku:'',issues:['SKU was not confirmed; it is optional.']});await open();await vi.waitFor(()=>expect(posts).toHaveLength(1));
+  });
+  it('blanks a foreign price rather than leave it in a USD field',async()=>{
+    capture({currency:'EUR',price:19.5,issues:['Price is in EUR. Enter a USD price and confirm it before submitting.']});
+    const reply=await open();expect(reply.data.record.draft.price).toBeNull();expect(reply.data.record.express.reasons[0].text).toContain('EUR 19.50');
+  });
+  it.each([
+    ['no default team',()=>{delete values.defaultTeam;}],
+    ['no default person',()=>{const plainRoute=plain;route=(path,init)=>path.endsWith('/options')?response({memberName:'A',teams:deviceOptions().teams,recipients:deviceOptions().recipients,defaultRecipientId:null}):plainRoute(path,init);}],
+    ['a default team no longer on the list',()=>{values.defaultTeam='gone';}],
+    ['a default person no longer on the list',()=>{route=(path,init)=>path.endsWith('/options')?response({memberName:'A',teams:deviceOptions().teams,recipients:[{id:'other',name:'Other'}],defaultRecipientId:'person1'}):plain(path,init);}],
+  ])('falls back to the form with %s',async(_name,arrange)=>{
+    arrange();const reply=await open();await idle();expect(reply.data.record.express.reasons.map((r:any)=>r.code)).toContain('defaults');expect(posts).toHaveLength(0);
+  });
+  it('falls back when /check finds a repeat, naming it',async()=>{
+    route=path=>path.endsWith('/check')?response({repeats:[{memberName:'Test Student B',createdMs:1,pageUrl:'https://www.notion.so/earlier',state:'created'}]}):undefined;
+    const reply=await open();await idle();const reason=reply.data.record.express.reasons.find((r:any)=>r.code==='repeat');
+    expect(reason.repeats[0]).toMatchObject({memberName:'Test Student B',pageUrl:'https://www.notion.so/earlier'});expect(posts).toHaveLength(0);
+  });
+  it('falls back when /check can\'t be reached',async()=>{
+    route=path=>path.endsWith('/check')?new TypeError('offline'):undefined;
+    const reply=await open();await idle();expect(reply.data.record.express.reasons.map((r:any)=>r.code)).toEqual(['check-failed']);expect(posts).toHaveLength(0);
+  });
+  it('falls back when /options can\'t be reached, without asking /check',async()=>{
+    route=path=>path.endsWith('/options')?new TypeError('offline'):undefined;
+    const reply=await open();await idle();expect(reply.data.record.express.state).toBe('fallback');expect(checks).toBe(0);expect(posts).toHaveLength(0);
+  });
+  it('a revoked key found while deciding sends nothing and forgets the key',async()=>{
+    route=path=>path.endsWith('/options')?response({error:'This device is no longer paired.',code:'pair_again'},401):undefined;
+    const reply=await open();await idle();expect(reply.data.submission).toBeUndefined();expect(posts).toHaveLength(0);expect(values.deviceKey).toBeUndefined();expect(values[`draft:${key}`]).toBeDefined();
+  });
+  it('falls back when this page was already sent from another tab',async()=>{
+    values[`receipt:7:${url}`]={submissionId:'x'};const reply=await open();await idle();expect(reply.data.record.express.reasons.map((r:any)=>r.code)).toContain('already-sent');expect(posts).toHaveLength(0);
+  });
+  it('falls back when another tab\'s send of this page is uncertain, but not when it failed',async()=>{
+    values['submission:y']={id:'y',draftKey:`7:${url}`,state:'failed',updatedAt:1};await open();await vi.waitFor(()=>expect(values[`receipt:${key}`]).toBeDefined());expect(posts).toHaveLength(1);
+    delete values[`receipt:${key}`];posts.length=0;for(const k of Object.keys(values))if(k.startsWith('submission:')&&k!=='submission:y')delete values[k];
+    values['submission:y'].state='uncertain';const reply=await open();await idle();expect(reply.data.record.express.reasons.map((r:any)=>r.code)).toContain('already-sent');expect(posts).toHaveLength(0);
+  });
+  it('looks again after a fallback, with the same ID: selecting the option and reopening sends it',async()=>{
+    capture({price:null,issues:['Select all product options on the store page, or enter the exact variant and price manually.']});
+    const first=await open();capture();const second=await open();await vi.waitFor(()=>expect(posts).toHaveLength(1));
+    expect(second.data.record.submissionId).toBe(first.data.record.submissionId);expect(posts[0].submissionId).toBe(first.data.record.submissionId);expect(posts[0].draft.price).toBe(30);
+  });
+  it('never sends a draft a student has edited',async()=>{
+    capture({price:null,issues:['Unit price needs your review.']});const first=(await open()).data.record;
+    await call({type:'save-draft',record:{...first,updatedAt:first.updatedAt+1,draft:{...first.draft,price:12}}});expect(values[`draft:${key}`].edited).toBe(true);
+    capture();const again=await open();await idle();expect(again.data.record.draft.price).toBe(12);expect(posts).toHaveLength(0);
+  });
+  it('a save with nothing changed doesn\'t count as an edit',async()=>{
+    capture({price:null,issues:['Unit price needs your review.']});const first=(await open()).data.record;
+    await call({type:'save-draft',record:{...first,updatedAt:first.updatedAt+1}});expect(values[`draft:${key}`].edited).toBeUndefined();
+  });
+  it('New request and Discard mean the form: they read the page but never send, even on reopening',async()=>{
+    await open();await vi.waitFor(()=>expect(values[`receipt:${key}`]).toBeDefined());
+    await call({type:'discard',key});const fresh=await open(false);expect(fresh.data.record.express.state).toBe('manual');
+    const reopened=await open();await idle();expect(reopened.data.record.submissionId).toBe(fresh.data.record.submissionId);expect(posts).toHaveLength(1);
+  });
+  it('does nothing while the device is expired or unpaired',async()=>{
+    values.site={...site,expired:true};const reply=await open();await idle();expect(reply.data.submission).toBeUndefined();expect(posts).toHaveLength(0);expect(checks).toBe(0);
+  });
+  it('an uncertain send is never resent: not by reopening, and not after the student confirms and returns to the form',async()=>{
+    route=path=>path.endsWith('/requests')?(posts.push({uncertain:true}),response({state:'uncertain',error:'Notion may or may not have it.'},202)):undefined;
+    const first=await open();const id=first.data.record.submissionId;await vi.waitFor(()=>expect(values[`submission:${id}`].state).toBe('uncertain'));
+    for(let i=0;i<3;i++){const again=await open();expect(again.data.submission.state).toBe('uncertain');}await idle();expect(posts).toHaveLength(1);
+    await call({type:'restart',key,acknowledgeUncertain:true});route=()=>undefined;
+    const reopened=await open();await idle();expect(reopened.data.submission).toBeUndefined();expect(reopened.data.record.express.state).toBe('manual');expect(posts).toHaveLength(1);
+  });
+  it('a send with no answer is never resent, and is only read back',async()=>{
+    route=path=>path.endsWith('/requests')?(posts.push({lost:true}),new TypeError('offline')):undefined;
+    const first=await open();const id=first.data.record.submissionId;await vi.waitFor(()=>expect(values[`submission:${id}`]?.state).toBe('uncertain'));
+    route=(path,init)=>path.endsWith('/requests')?(posts.push({resent:true}),created()):path.includes(`/requests/${id}`)?response({state:'uncertain',error:'Still unknown.'},202):plain(path,init);
+    await open();await open();await idle();expect(posts).toEqual([{lost:true}]);
+  });
+  it('a recorded refusal returns to the form with the error and a new ID, and doesn\'t send again',async()=>{
+    route=path=>path.endsWith('/requests')?(posts.push({}),response({state:'failed',error:'Notion refused this request.',code:'notion_400'},502)):undefined;
+    const first=await open();await vi.waitFor(()=>expect(values[`draft:${key}`].express.reasons.length).toBe(1));
+    const again=await open();await idle();expect(again.data.submission).toBeUndefined();expect(again.data.record.submissionId).not.toBe(first.data.record.submissionId);
+    expect(again.data.record.express.reasons[0]).toMatchObject({code:'send-failed',text:'Notion refused this request.'});expect(posts).toHaveLength(1);
+  });
+  it('a refusal with nothing recorded returns to the form, keeping the ID, and doesn\'t send again',async()=>{
+    route=path=>path.endsWith('/requests')?(posts.push({}),response({error:'Slow down.',code:'rate_limited'},429)):undefined;
+    const first=await open();await vi.waitFor(()=>expect(values[`draft:${key}`].express.reasons.length).toBe(1));
+    const again=await open();await idle();expect(again.data.record.submissionId).toBe(first.data.record.submissionId);expect(again.data.record.express.reasons[0].text).toBe('Slow down.');expect(posts).toHaveLength(1);
+  });
+  it('a worker that stopped after deciding but before recording leaves the form, not a second chance to send',async()=>{
+    const r=record();values[`draft:${key}`]={...r,express:{state:'attempted',reasons:[]}};
+    const reply=await open();await idle();expect(reply.data.submission).toBeUndefined();expect(posts).toHaveLength(0);
+  });
+  it('a Create request click marks the draft, so it isn\'t picked up by itself if that send fails',async()=>{
+    const r=record();values[`draft:${key}`]=r;route=path=>path.endsWith('/requests')?(posts.push({}),response({error:'Slow down.',code:'rate_limited'},429)):undefined;
+    await call({type:'submit',key,submissionId:r.submissionId});route=()=>undefined;posts.length=0;
+    const reply=await open();await idle();expect(reply.data.record.express.state).toBe('manual');expect(posts).toHaveLength(0);
+  });
+  it('the switch needs a paired device, and Unpair turns it off',async()=>{
+    expect((await call({type:'set-express',enabled:false})).data.expressEnabled).toBe(false);
+    expect((await call({type:'set-express',enabled:true})).data.expressEnabled).toBe(true);
+    await call({type:'unpair'});expect(values.expressEnabled).toBeUndefined();
+    expect(await call({type:'set-express',enabled:true})).toMatchObject({ok:false});
+  });
+});
+describe('team colors',()=>{
+  const good={settings:{primaryColor:'#0b3d91',secondaryColor:'#f58220',organizationName:'Test Robotics Team A'}};
+  const brand={primary:'#111111',secondary:'#222222',organizationName:'Old Name',checkedAt:5};
+  let statusCalls:any[],status:()=>Response|Error;
+  beforeEach(()=>{
+    statusCalls=[];status=()=>response(good);
+    vi.stubGlobal('fetch',vi.fn(async(path:string,init:any)=>{
+      if(path===`${SITE}/api/setup/status`){statusCalls.push(init);const answer=status();if(answer instanceof Error)throw answer;return answer.clone();}
+      if(path.endsWith('/pair'))return response({deviceKey:DEVICE_KEY,memberName:'Test Student A'},201);
+      return response({memberName:'Test Student A',teams:[],recipients:[],defaultRecipientId:null});
+    }));
+  });
+  const pair=()=>call({type:'pair',origin:SITE,pin:'K7M2-9QXP',deviceLabel:'x'});
+  it('reads them at pairing, without the device key or cookies, and reports them',async()=>{
+    values.brandAttemptAt=Date.now();const reply=await pair();
+    expect(statusCalls).toHaveLength(1);expect(statusCalls[0].headers).toBeUndefined();expect(statusCalls[0].credentials).toBe('omit');expect(statusCalls[0].redirect).toBe('error');
+    expect(reply.data.brand).toMatchObject({primary:'#0b3d91',secondary:'#f58220',organizationName:'Test Robotics Team A'});
+  });
+  it('asks at most once a day, whether or not the last try worked',async()=>{
+    status=()=>new TypeError('offline');await call({type:'refresh-options'});await call({type:'refresh-options'});expect(statusCalls).toHaveLength(1);
+    values.brandAttemptAt=Date.now()-23*3600_000;await call({type:'refresh-options'});expect(statusCalls).toHaveLength(1);
+    values.brandAttemptAt=Date.now()-24*3600_000-1;status=()=>response(good);const reply=await call({type:'refresh-options'});expect(statusCalls).toHaveLength(2);expect(reply.data.brand.primary).toBe('#0b3d91');
+  });
+  it.each([
+    ['a color that is not 6 digits',{settings:{...good.settings,primaryColor:'#abc'}}],
+    ['a named color',{settings:{...good.settings,secondaryColor:'red'}}],
+    ['a CSS injection',{settings:{...good.settings,primaryColor:'#000000;background:url(https://evil.example.test/)'}}],
+    ['a color that is not text',{settings:{...good.settings,primaryColor:0}}],
+    ['a missing color',{settings:{organizationName:'x',primaryColor:'#000000'}}],
+    ['a name that is too long',{settings:{...good.settings,organizationName:'x'.repeat(101)}}],
+    ['an empty name',{settings:{...good.settings,organizationName:'   '}}],
+    ['a name with control characters',{settings:{...good.settings,organizationName:'a\nb'}}],
+    ['no settings',{}],
+    ['a list',[1]],
+  ])('keeps the last good colors after %s',async(_name,body)=>{
+    values.brand=brand;status=()=>response(body);const reply=await call({type:'refresh-options'});expect(statusCalls).toHaveLength(1);expect(reply.data.brand).toEqual(brand);
+  });
+  it.each([['a network failure',()=>new TypeError('offline')],['an error status',()=>response(good,500)],['a page that is not JSON',()=>new Response('<h1>Hi</h1>')]])('keeps the last good colors after %s',async(_name,answer)=>{
+    values.brand=brand;status=answer as ()=>Response|Error;expect((await call({type:'refresh-options'})).data.brand).toEqual(brand);
+  });
+  it('is refused nothing else by a color failure: the lists still load',async()=>{
+    status=()=>new TypeError('offline');expect((await call({type:'refresh-options'})).ok).toBe(true);
+  });
+  it('doesn\'t ask without Chrome\'s permission for the site',async()=>{hasPermission=false;await call({type:'settings'});await call({type:'refresh-options'});expect(statusCalls).toHaveLength(0);});
+  it('clears them on Unpair, and pairing with another site drops the old ones',async()=>{
+    values.brand=brand;values.brandAttemptAt=1;await call({type:'unpair'});expect(values.brand).toBeUndefined();expect(values.brandAttemptAt).toBeUndefined();expect((await call({type:'settings'})).data.brand).toBeUndefined();
+    values.site=site;values.deviceKey=DEVICE_KEY;values.brand=brand;status=()=>new TypeError('offline');
+    await call({type:'pair',origin:'https://other-team.example.test',pin:'K7M2-9QXP',deviceLabel:'x'});expect(values.brand).toBeUndefined();
+  });
+  it('a read still running when Unpair happens can\'t bring them back',async()=>{
+    let finish!:(r:Response)=>void;status=()=>response(good);
+    vi.stubGlobal('fetch',vi.fn(async(path:string)=>{if(path.endsWith('/status'))return new Promise<Response>(done=>{finish=done;});if(path.endsWith('/revoke'))return response({revoked:true});return response({memberName:'A',teams:[],recipients:[],defaultRecipientId:null});}));
+    const refresh=call({type:'refresh-options'});await vi.waitFor(()=>expect(finish).toBeDefined());await call({type:'unpair'});finish(response(good));await refresh;expect(values.brand).toBeUndefined();
+  });
+  it('keeps the theme, starting dark, and refuses anything else',async()=>{
+    expect((await call({type:'settings'})).data.theme).toBe('dark');expect((await call({type:'set-theme',theme:'light'})).data.theme).toBe('light');
+    expect(await call({type:'set-theme',theme:'blue' as any})).toMatchObject({ok:false});expect(values.theme).toBe('light');
   });
 });

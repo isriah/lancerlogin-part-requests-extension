@@ -1,6 +1,6 @@
 // Zips dist for students, with the version in the name: release/robotics-part-requests-<version>.zip. Run through `npm run package`.
 // The zip format is written here so packaging needs no extra dependency and behaves the same on every computer.
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crc32, deflateRawSync } from 'node:zlib';
@@ -16,6 +16,8 @@ if (manifest.version !== pkg.version) refuse(`manifest version ${manifest.versio
 if (JSON.stringify(manifest.optional_host_permissions) !== '["https://*/*"]') refuse('optional_host_permissions must be exactly https://*/*.');
 if (manifest.host_permissions) refuse('host_permissions must be absent.');
 if (/localhost|http:/.test(JSON.stringify(manifest))) refuse('the manifest mentions http or localhost.');
+if (!/font-src 'self'/.test(manifest.content_security_policy?.extension_pages ?? '')) refuse("the CSP must say font-src 'self'.");
+if (!existsSync(join(dist, 'THIRD_PARTY_NOTICES.txt'))) refuse('the font license notices are missing.');
 
 const files = readdirSync(dist, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => join(entry.parentPath, entry.name)).sort();
 const locals = [], centrals = [];

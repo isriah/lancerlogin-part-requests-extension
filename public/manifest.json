@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Robotics Part Requests",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Review a product from your team's supported stores and send a part request through your team's LancerLogin site.",
   "minimum_chrome_version": "120",
   "permissions": ["activeTab", "scripting", "storage"],
@@ -9,5 +9,5 @@
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "Request this part" },
   "options_page": "options.html",
-  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; connect-src https:" }
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; connect-src https:; font-src 'self'" }
 }

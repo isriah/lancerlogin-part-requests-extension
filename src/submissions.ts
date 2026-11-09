@@ -1,5 +1,5 @@
 import { AppError } from './errors';
-import type { Repeat, Submission } from './types';
+import type { Repeat, Submission, SubmissionFacts } from './types';
 
 export interface SubmissionStore {
   get(id: string): Promise<Submission | undefined>;
@@ -11,11 +11,11 @@ export interface Created { pageUrl: string; repeats?: Repeat[] }
 export class SubmissionManager {
   private queue: Promise<unknown> = Promise.resolve();
   constructor(private store: SubmissionStore, private now: () => number = Date.now) {}
-  submit(id: string, draftKey: string, create: () => Promise<Created>): Promise<Submission> {
+  submit(id: string, draftKey: string, create: () => Promise<Created>, meta: { express?: boolean; facts?: SubmissionFacts } = {}): Promise<Submission> {
     const task = this.queue.then(async () => {
       const existing = await this.store.get(id);
       if (existing) return existing.state === 'pending' ? { ...existing, state: 'uncertain' as const, message: 'A previous submission is awaiting confirmation. Check Notion before retrying.' } : existing;
-      const pending: Submission = { id, draftKey, state: 'pending', updatedAt: this.now() };
+      const pending: Submission = { id, draftKey, state: 'pending', updatedAt: this.now(), ...meta };
       await this.store.set(pending); // If storage fails, do not make the network request.
       let result: Submission;
       try {

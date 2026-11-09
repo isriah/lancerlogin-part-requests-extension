@@ -1,28 +1,59 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Part Requests</title></head>
-<body class="popup">
-  <header class="masthead"><div class="brand-mark" aria-hidden="true">↗</div><div><p class="eyebrow">ROBOTICS / PROCUREMENT</p><h1>Part Requests</h1></div><button id="settings" class="icon-button" aria-label="Open settings" title="Settings">⚙</button></header>
-  <main>
-    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
-    <p id="update-notice" class="update-notice" role="status" hidden><strong>Update available:</strong> <span id="update-text"></span> <a id="update-link" target="_blank" rel="noopener noreferrer" hidden>Get the update ↗</a></p>
-    <section id="loading" class="empty"><span class="pulse"></span><h2>Reading this product</h2><p>Checking the selected item and its options.</p></section>
-    <section id="unsupported" class="empty" hidden><div class="empty-icon">↗</div><h2>Open a supported store</h2><p>V1 captures individual products from your team's 20 named vendors.</p><details><summary>Supported stores</summary><ul id="vendor-list" class="vendor-list"></ul></details></section>
-    <section id="not-product" class="empty" hidden><div class="empty-icon">⌕</div><h2>Open one specific product</h2><p id="capture-explanation"></p></section>
-    <section id="setup" class="setup-banner" hidden><div><strong id="setup-title">Pair this device to send requests</strong><p id="setup-message"></p></div><button id="connect" class="secondary">Open settings</button></section>
-    <section id="result" class="result" hidden><span class="eyebrow" id="result-label">REQUEST STATUS</span><h2 id="result-title"></h2><p id="result-message"></p><a id="notion-link" class="primary link-button" target="_blank" rel="noopener noreferrer" hidden>Open in Notion ↗</a><div id="uncertain-check" hidden><a id="database-link" class="database-link" target="_blank" rel="noopener noreferrer" hidden>Check ordering database ↗</a><label class="check"><input id="checked-notion" type="checkbox">I checked Notion and this request was not created.</label></div><button id="retry" class="secondary" hidden>Review and retry</button><button id="new-request" class="secondary" hidden>New request</button></section>
-    <form id="request-form" novalidate hidden>
-      <div class="section-heading"><span class="eyebrow">REVIEW REQUEST</span><span id="vendor" class="badge"></span><button id="submit" type="submit" class="primary">Create request <span aria-hidden="true">↗</span></button></div>
-      <ul id="validation" class="validation" role="alert" hidden></ul>
-      <ul id="capture-issues" class="hints" hidden></ul>
-      <p id="repeat-warning" class="repeat-warning" role="status" hidden><strong>Requested recently:</strong> <span id="repeat-names"></span>. You can still send this. <a id="repeat-link" target="_blank" rel="noopener noreferrer" hidden>Open ↗</a></p>
-      <label for="description">Item description</label><textarea id="description" rows="2" maxlength="2000"></textarea>
-      <div class="grid grid-3"><div><label for="status">Request status</label><select id="status"><option>NORMAL Request</option><option>Incomplete Request</option></select></div><div><label for="team">Team</label><select id="team"></select></div><div><label for="recipient">Orderer / recipient</label><select id="recipient"></select></div></div>
-      <div class="grid grid-wide-first"><div><label for="url">Product URL</label><input id="url" type="url" maxlength="2000" autocomplete="off" spellcheck="false"></div><div><label for="sku">SKU <span class="optional">optional</span></label><input id="sku" maxlength="2000" autocomplete="off"></div></div>
-      <div class="grid grid-3"><div><label for="quantity">Quantity</label><input id="quantity" type="number" step="any" min="0.000001" inputmode="decimal"></div><div><label for="price">Unit price <span class="optional">USD</span></label><div class="money-input"><span>$</span><input id="price" type="number" step="any" min="0" inputmode="decimal"></div></div><div><span class="field-label">Estimated total</span><div class="total"><strong id="total">$0.00</strong></div></div></div>
-      <p class="field-help">Quantity is units or packs sold at this price. The total excludes shipping and tax.</p>
-      <label id="currency-row" class="check" hidden><input id="currency-confirmed" type="checkbox">I entered the unit price in USD.</label>
-      <div class="actions"><button id="discard" type="button" class="quiet">Discard</button><p class="footnote">Creates a Notion request for your coach to order.</p></div>
+<html lang="en" class="app" data-theme="dark" data-kind="popup"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Part Requests</title><script src="/appearance-boot.js"></script></head>
+<body>
+<div class="x-popup" id="frame">
+  <header class="x-head">
+    <div class="brand-mark" aria-hidden="true">L</div>
+    <span class="brand-heading"><strong id="brand-name">LancerLogin</strong><span>Part Requests</span></span>
+    <script src="/appearance-boot.js"></script>
+    <div class="x-head-actions"><button id="settings" class="ui-button x-icon-button" type="button" aria-label="Open settings" title="Settings"><span aria-hidden="true">&#9881;</span></button></div>
+  </header>
+  <h1 class="visually-hidden">Part Requests</h1>
+  <main class="x-main" id="main">
+    <div id="alerts" class="x-alerts" tabindex="0">
+      <div id="notice" class="x-tone" data-tone="neutral" role="status" aria-live="polite" hidden></div>
+      <section id="setup" class="x-tone x-setup" data-tone="neutral" hidden><div><strong id="setup-title">Pair this device to send requests</strong><span id="setup-message" class="x-setup-message"></span></div><button id="connect" type="button" class="ui-button x-setup-button">Open settings</button></section>
+      <div id="express-reasons-box" class="x-tone" data-tone="warning" role="status" hidden><strong>Not sent yet. This needs your review:</strong><ul id="express-reasons"></ul></div>
+      <div id="validation-box" class="x-tone" data-tone="error" role="alert" hidden><strong>Fix these first:</strong><ul id="validation"></ul></div>
+      <div id="capture-issues-box" class="x-tone" data-tone="warning" hidden><strong>Check the page:</strong><ul id="capture-issues"></ul></div>
+      <p id="repeat-warning" class="x-tone" data-tone="warning" role="status" hidden><strong>Requested recently:</strong> <span id="repeat-names"></span>. You can still send this. <a id="repeat-link" target="_blank" rel="noopener noreferrer" hidden>Open &#8599;</a></p>
+      <p id="update-notice" class="x-tone" data-tone="neutral" role="status" hidden><strong>Update available:</strong> <span id="update-text"></span> <a id="update-link" target="_blank" rel="noopener noreferrer" hidden>Get the update &#8599;</a></p>
+    </div>
+    <section id="loading" class="ui-card x-empty"><span class="x-spin" aria-hidden="true"></span><h2>Reading this product</h2><p>Checking the selected item and its options.</p></section>
+    <section id="unsupported" class="ui-card x-empty" hidden><h2>Open a supported store</h2><p>This captures individual products from your team's 20 named stores.</p><details class="settings-disclosure"><summary>Supported stores</summary><ul id="vendor-list" class="x-vendor-list"></ul></details></section>
+    <section id="not-product" class="ui-card x-empty" hidden><h2>Open one specific product</h2><p id="capture-explanation"></p></section>
+    <section id="result" class="ui-card x-result" hidden>
+      <div class="x-result-head" role="status" aria-live="polite"><span id="result-spin" class="x-spin" aria-hidden="true" hidden></span><h2 id="result-title"></h2><span id="result-pill" class="status-pill ui-status" hidden></span></div>
+      <p id="result-item" class="x-item-title" hidden></p>
+      <dl id="result-facts" class="x-facts" hidden></dl>
+      <p id="result-message"></p>
+      <div id="result-links" class="x-actions"><a id="notion-link" class="ui-button ui-button--primary" target="_blank" rel="noopener noreferrer" hidden>Open in Notion &#8599;</a><button id="new-request" class="ui-button" type="button" hidden>New request</button></div>
+      <div id="uncertain-check" class="x-result" hidden><div class="x-actions"><a id="database-link" class="ui-button" target="_blank" rel="noopener noreferrer" hidden>Check ordering database &#8599;</a></div><label class="x-check"><input id="checked-notion" type="checkbox">I checked Notion and this request was not created.</label></div>
+      <div class="x-actions"><button id="retry" class="ui-button ui-button--primary" type="button" hidden>Review and retry</button></div>
+      <div id="express-help" class="x-tone" data-tone="neutral" hidden><strong>Is anything wrong, or do you need more than 1?</strong>Open it in Notion and change the page there. To remove it, delete the page in Notion or ask your coach. There's no undo here, because this extension's Notion connection can't delete pages.</div>
+      <p id="express-off-row" hidden><a id="express-off" href="#">Turn off Express addition</a></p>
+    </section>
+    <form id="request-form" class="ui-card x-form" aria-labelledby="review-title" novalidate hidden>
+      <div class="x-form-head" id="form-head"><h2 id="review-title">Review request</h2><span id="vendor" class="status-pill ui-status pill-neutral"></span><span class="x-spacer"></span><button id="discard" type="button" class="ui-button x-quiet">Discard</button><button id="submit" type="submit" class="ui-button ui-button--primary">Create request</button></div>
+      <div class="x-field"><label for="description">Item description</label><textarea id="description" rows="2" maxlength="2000"></textarea></div>
+      <div class="x-grid x-grid-3">
+        <div class="x-field"><label for="status">Request status</label><select id="status"><option>NORMAL Request</option><option>Incomplete Request</option></select></div>
+        <div class="x-field"><label for="team">Team</label><select id="team"></select></div>
+        <div class="x-field"><label for="recipient">Orderer / recipient</label><select id="recipient"></select></div>
+      </div>
+      <div class="x-grid x-grid-wide">
+        <div class="x-field"><label for="url">Product URL</label><input id="url" type="url" maxlength="2000" autocomplete="off" spellcheck="false"></div>
+        <div class="x-field"><label for="sku">SKU <span class="x-optional">optional</span></label><input id="sku" maxlength="2000" autocomplete="off"></div>
+      </div>
+      <div class="x-grid x-grid-3">
+        <div class="x-field"><label for="quantity">Quantity</label><input id="quantity" type="number" step="any" min="0.000001" inputmode="decimal"></div>
+        <div class="x-field"><label for="price">Unit price <span class="x-optional">USD</span></label><div class="x-money"><span aria-hidden="true">$</span><input id="price" type="number" step="any" min="0" inputmode="decimal"></div></div>
+        <div class="x-field"><span class="x-label">Estimated total</span><div class="x-total" id="total">$0.00</div></div>
+      </div>
+      <label id="currency-row" class="x-check" hidden><input id="currency-confirmed" type="checkbox">I entered the unit price in USD.</label>
+      <p class="x-help">Quantity is units or packs sold at this price. The total excludes shipping and tax. Creates a Notion request for your coach to order.</p>
     </form>
   </main>
-  <script type="module" src="/src/popup.ts"></script>
+</div>
+<script type="module" src="/src/popup.ts"></script>
 </body></html>

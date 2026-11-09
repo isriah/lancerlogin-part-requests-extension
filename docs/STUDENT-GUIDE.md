@@ -28,6 +28,22 @@ Good to know:
 - **"Requested recently"** means someone already asked for this in the last 7 days. Check with them if you aren't sure. You can still send it.
 - **Incomplete request** is for when you don't know everything yet. It only needs a description and a link.
 
+## Express addition (optional)
+
+If you order often, turn on **Express addition** in settings. It's off until you turn it on. Save your team and Notion name first, because it needs both.
+
+With it on, click the extension on a product page and the request is sent right away when everything was filled in from the page. It always sends **quantity 1** as a NORMAL request. You can close the popup while it sends.
+
+If anything needs checking, nothing is sent and you get the form with the reason at the top. Fix what it lists and click **Create request**. A repeat from the last 7 days counts as needing a check, because nobody has looked at the page yet.
+
+There's no undo. To change a request, or to ask for more than 1, click **Open in Notion to review** and change it there. To remove one, delete the page in Notion or ask your coach.
+
+Clicking the extension again on a page you already sent shows that request and never sends it twice. Use **New request** only if you really want another one.
+
+## Light mode
+
+The extension starts dark. Use the **Light mode** switch at the top of settings to change it. Once you pair, it uses your team's name and colors.
+
 ## If something goes wrong
 
 | You see | Do this |
@@ -39,7 +55,8 @@ Good to know:
 | Update available | Your extension is older than your team's site asks for. It keeps working. Follow the link, or ask your team for the new zip, when you have a moment. |
 | Unpaired on this computer, and an Admin may need to remove it | The site couldn't be reached or didn't accept the key. If `/ordering-pin` says you have too many devices, ask an Admin to remove this one. |
 | The site is updating | Wait. It tries again by itself. |
-| **Check Notion before retrying** | Your request may already exist. Click **Check ordering database** to look first. Only if it isn't there, tick the box and retry. |
+| **Check Notion before retrying** or **Not sure it was created** | Your request may already exist, and it won't be sent again by itself. Click **Check ordering database** to look first. Only if it isn't there, tick the box and retry. |
+| Not sent yet. This needs your review | Express addition stopped before sending. Do what the list says, then click **Create request**. If it says to select options, you can select them on the store page and click the extension again. |
 | Your name isn't in the list | Ask an Admin to refresh the recipient list. |
 | Open a supported store | This store or page isn't supported. Open one specific product on a store from the list. |
 

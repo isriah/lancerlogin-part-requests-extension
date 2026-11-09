@@ -16,7 +16,7 @@ export function choices(select: HTMLSelectElement, values: { id: string; name: s
   select.value = selected;
 }
 export function notice(text: string, kind = ''): void {
-  const node = el('notice'); node.textContent = text; node.className = `notice ${kind}`; node.hidden = !text;
+  const node = el('notice'); node.textContent = text; node.dataset.tone = kind || 'neutral'; node.hidden = !text;
 }
 /** The update notice, on the pages that have one. It only informs: nothing is ever blocked for being out of date. */
 export function showUpdateNotice(options: DeviceOptions | undefined): void {

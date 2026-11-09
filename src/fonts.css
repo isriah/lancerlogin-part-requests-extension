@@ -1,0 +1,5 @@
+/* Bundled from @fontsource (SIL OFL 1.1, see THIRD_PARTY_NOTICES.txt). Latin only; other characters use the system fallback. No font is ever fetched from a remote host. */
+@font-face { font-family: "Bebas Neue"; font-style: normal; font-weight: 400; font-display: swap; src: url('../node_modules/@fontsource/bebas-neue/files/bebas-neue-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: "Roboto"; font-style: normal; font-weight: 400; font-display: swap; src: url('../node_modules/@fontsource/roboto/files/roboto-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: "Roboto"; font-style: normal; font-weight: 500; font-display: swap; src: url('../node_modules/@fontsource/roboto/files/roboto-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: "Roboto"; font-style: normal; font-weight: 700; font-display: swap; src: url('../node_modules/@fontsource/roboto/files/roboto-latin-700-normal.woff2') format('woff2'); }

@@ -34,11 +34,30 @@ During a LancerLogin update, the extension waits and tries again by itself with 
 
 If your team's site asks for a newer version than this one, Options and the popup show a notice with a link to the update. It never blocks anything.
 
+### Look and feel
+
+The popup and Options use the LancerLogin dashboard's design, with Roboto and Bebas Neue bundled in the extension and nothing loaded from anywhere else. They start dark, and **Light mode** in Options changes that. Once paired, the extension uses your team's name and colors from its LancerLogin site. It reads them at pairing and at most once a day after that, keeps the last good colors if a read fails, and forgets them on Unpair. Until then it uses LancerLogin's default colors.
+
+### Express addition
+
+**Express addition** is a switch in Options, off by default. When it's on, clicking the toolbar icon still opens the popup, and the request is sent without another click if all of these hold:
+
+- The page is one product from a supported store.
+- The description and a USD price were read from the page, with no unselected options.
+- The reader raised no issue, other than the optional SKU.
+- A default team and Notion name are saved and still on the lists.
+- `POST /check` answered and found no recent request for this product.
+- This page hasn't already been sent from this browser.
+
+It always sends quantity 1 as a NORMAL request. If anything doesn't hold, nothing is sent and the form lists why. A student who edits a draft, or presses **New request** or **Discard**, gets the form from then on.
+
+The service worker owns the send, so closing the popup doesn't cancel it. It uses the same submission ID and duplicate protection as **Create request**: reopening shows the sending state or the receipt and never sends again, and an uncertain result is never resent. There is no undo, because the Notion connection can't delete pages, so the success screen says how to change or remove a request in Notion.
+
 ## Verification status
 
-- Unit tests (`npm test`): 269 pass, including all 20 adapter fixtures, the device API's results, version comparison, Unpair's outcomes, worker persistence, and popup and Options interactions.
-- Browser end-to-end run (`npm run e2e`): 145 checks against the built extension with a simulated plugin API and Chrome's real permission prompt. It cannot prove the toolbar-click permission grant.
-- A pass against the real plugin in a local preview, with Notion stubbed, has been run; see [Development](docs/DEVELOPMENT.md#tests). The extension has not yet been run against real Notion through the plugin, real Discord, real Cloudflare, or Google Chrome itself.
+- Unit tests (`npm test`): 412 pass, including all 20 adapter fixtures, the device API's results, version comparison, Unpair's outcomes, worker persistence, Express addition's conditions and sends, team color validation and contrast, and popup and Options interactions.
+- Browser end-to-end run (`npm run e2e`): 276 checks against the built extension with a simulated plugin API and Chrome's real permission prompt. It cannot prove the toolbar-click permission grant.
+- A pass against the real plugin in a local preview, with Notion stubbed, has been run on this version, including team colors from Core's real status route; see [Development](docs/DEVELOPMENT.md#tests). Version 0.3.0 has not been run against real Notion, real Discord, real Cloudflare or Google Chrome itself, and Express addition has not been tried from a real toolbar click.
 - Vendor reader checks: see the [vendor matrix](docs/VENDORS.md).
 
 ## Develop
@@ -54,6 +73,6 @@ npm run package
 
 `npm run check` runs tests and the production build. `npm run e2e` drives the built extension in a real browser. `npm run package` writes `release/robotics-part-requests-<version>.zip`, and refuses to package a build with test permissions. `npm run dev` serves the layouts locally, but extension APIs are available only after loading `dist` as an extension.
 
-See [setup and troubleshooting](docs/SETUP.md), [architecture and tests](docs/DEVELOPMENT.md), and [vendor maintenance](docs/VENDORS.md).
+See [setup and troubleshooting](docs/SETUP.md), [architecture and tests](docs/DEVELOPMENT.md), and [vendor maintenance](docs/VENDORS.md). Bundled font licenses are in [THIRD_PARTY_NOTICES.txt](public/THIRD_PARTY_NOTICES.txt), which ships inside the extension.
 
 Not included: unsupported stores, the Other vendor option, Chrome Web Store publication, RUSH/SLOW requests, bulk capture, actual purchases, and subsequent order management.

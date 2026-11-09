@@ -1,3 +1,5 @@
+import type { Brand, Theme } from './brand';
+
 export type RequestStatus = 'NORMAL Request' | 'Incomplete Request';
 export interface AdapterConfig {
   id: string;
@@ -48,13 +50,25 @@ export interface RequestDraft {
   price: number | null;
   currencyConfirmed: boolean;
 }
+/** Why Express addition did not send a page. `repeats` lets the popup name who asked and link to it. */
+export interface ExpressReason { code: 'price' | 'variant' | 'currency' | 'description' | 'defaults' | 'repeat' | 'issue' | 'already-sent' | 'check-failed' | 'send-failed'; text: string; repeats?: Repeat[] }
+/**
+ * What Express addition has done with a draft. `fallback`: it stopped, for these reasons, and may look again if nobody edits the draft.
+ * `attempted` or `manual`: a send was started, or a student chose the form, so it never sends this draft by itself again.
+ */
+export interface ExpressMark { state: 'fallback' | 'attempted' | 'manual'; reasons: ExpressReason[] }
 export interface DraftRecord {
   key: string;
   submissionId: string;
   draft: RequestDraft;
   capture: CaptureResult;
   updatedAt: number;
+  /** A student changed a field. Express addition never sends a draft someone has edited. */
+  edited?: boolean;
+  express?: ExpressMark;
 }
+/** What was sent, kept with the submission because the draft is gone once it succeeds. Names, not IDs: this is only for showing. */
+export interface SubmissionFacts { description: string; store: string; quantity: number | null; price: number | null; team: string; recipient: string }
 export interface Submission {
   id: string;
   draftKey: string;
@@ -65,6 +79,9 @@ export interface Submission {
   repeats?: Repeat[];
   /** The server stated this result, so its ID is used up and trying again needs a new one. Otherwise resending the same ID is safe. */
   recorded?: boolean;
+  /** Sent by Express addition rather than a click on Create request. */
+  express?: boolean;
+  facts?: SubmissionFacts;
 }
 /** What the pages may know about pairing. The device key never appears here. */
 export interface SettingsView {
@@ -74,15 +91,23 @@ export interface SettingsView {
   deviceLabel?: string;
   options?: DeviceOptions;
   defaultTeam: string;
+  /** The team's last good colors and name. Absent means LancerLogin's defaults. */
+  brand?: Brand;
+  /** Optional so older callers and tests read as dark. */
+  theme?: Theme;
+  expressEnabled?: boolean;
 }
 /** What Unpair answers. `revokedOnSite` is true only when the site confirmed it, so the page knows what to say. */
 export interface UnpairView extends SettingsView { revokedOnSite: boolean }
 export type Message =
-  | { type: 'capture'; tabId: number }
+  /** `auto` is true only when the toolbar opened the popup. Only then may Express addition send. */
+  | { type: 'capture'; tabId: number; auto?: boolean }
   | { type: 'settings' }
   | { type: 'pair'; origin: string; pin: string; deviceLabel: string }
   | { type: 'unpair' }
   | { type: 'refresh-options' }
+  | { type: 'set-theme'; theme: Theme }
+  | { type: 'set-express'; enabled: boolean }
   | { type: 'save-defaults'; defaultTeam: string; defaultRecipient: string }
   | { type: 'check-repeats'; url: string; sku: string }
   | { type: 'save-draft'; record: DraftRecord }

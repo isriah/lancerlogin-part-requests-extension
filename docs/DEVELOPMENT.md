@@ -12,6 +12,10 @@
 | `src/client.ts` | The plugin's device API: transport, one outcome per documented result |
 | `src/version.ts` | Numeric version comparison for the update notice |
 | `src/validate.ts` | Draft checks shown before sending. The plugin checks again. |
+| `src/brand.ts` | Validates the site's colors and name, and works out readable tokens with tested contrast math |
+| `src/appearance.ts`, `public/appearance-boot.js` | Applies the theme and team tokens. The boot file reads a synchronous copy before the page paints. |
+| `src/express.ts` | What stops an Express send, leaving out the checks that need the network |
+| `src/styles.css`, `src/fonts.css` | Dashboard tokens and components, from the approved mockup, and the bundled fonts |
 | `src/submissions.ts` | Persist-before-POST submission queue |
 | `src/background.ts` | Trusted message boundary, the device key, local drafts and receipts, capture, submit and retries |
 | `src/popup.ts`, `popup.html` | Review, totals, autosave, repeat warning, pairing prompt, result and recovery UI |
@@ -70,6 +74,28 @@ The same submission ID goes to the server, which allows one create per ID whatev
 
 While a send runs, the worker updates the record every 5 seconds, which keeps Chrome from stopping it during a long wait and tells the popup it is still alive. A pending record 30 seconds old with no running send, or an uncertain record with no recorded result, is checked with `GET /requests/<id>`, which only reads. If the site has no record, the student can send again. Because no result was recorded, a retry the student chooses keeps the same ID, so the server still protects against a first request that did land. A retry after a recorded result uses a new ID.
 
+## Styling
+
+`src/styles.css` carries the dashboard's tokens and component rules, through the owner-approved mockup, without Carts. Keep to the tokens. Two things are easy to trip over:
+
+- **Chrome's extension stylesheet** sets `body` to a system font at 75%. `html.app body` overrides it, and an end-to-end check guards it.
+- **The CSP refuses inline scripts,** so the flash protection is a separate file, included once in `<head>` and once right after the name in the header. `applyAppearance` writes its `localStorage` copy from what the worker reports.
+
+`brandTokens` gives `--on-primary`, `--on-secondary`, `--accent-text`, `--primary-edge` and `--ui-focus`, meeting 4.5:1 for text and 3:1 for edges and focus. The stylesheet's unpaired defaults are that calculation's output for #B80100 and #EEB822, and a test checks they match. Status pills use the fixed `--ui-*` tones and never team colors.
+
+Exception to the dashboard's UI standard, recorded at review: popup labels are .8125rem rather than 1rem, because Chrome caps a toolbar popup at 600 tall. Controls stay 44px.
+
+## Express addition
+
+When the toolbar opens the popup, it sends `capture` with `auto: true`. Anything done inside the popup uses `auto: false`, which can't send. `captureTab` in the worker runs one at a time per tab, so rapid reopening shares one draft and one submission ID. It stops at a receipt or an existing submission. Otherwise, with the switch on and a paired device, it reads the page, refreshes the lists, works out the reasons and asks `/check`.
+
+- **Any reason:** the draft is marked `fallback` with its reasons, and the form lists them. Reopening looks again, with the same ID, until a student edits the draft. That's how "select the option and reopen" works.
+- **No reasons:** the draft is marked `attempted` before anything is sent, then `startExpressSend` goes through the same `SubmissionManager`, `sendOnce` and submission ID as a click. If the worker stops at any point, the mark means the student gets the form or the saved result, never a second send.
+- **Results:** success writes the usual receipt. Uncertain and no answer use the usual read-only reconcile, and retrying needs the usual confirmation, which marks the draft `manual`. A recorded refusal mints a new ID and returns to the form with the error. A refusal with nothing recorded keeps the ID and returns to the form. Neither sends again by itself.
+- **Marks that stop it for good:** an edit, `attempted`, or `manual`. A click on Create request, Discard, New request and Review and retry all mark `manual`.
+
+`/check` covers the whole team for 7 days. "Already sent" also scans this browser's receipts and unsettled submissions for the same URL from any tab, with no time limit, and only sends the student to the form.
+
 ## Tests
 
 ```powershell
@@ -86,7 +112,7 @@ npm run build
 npm run e2e
 ```
 
-`e2e/extension.e2e.mjs` loads `dist` in a real browser with a simulated plugin API routed at the site's origin, so the service worker's real `fetch`, host permission and CSP are all exercised. It covers pairing, Deny and Allow, capture, draft persistence, rejected pages, twelve real clicks at one spot, pending and uncertain results, request payloads, a revoked device, Unpair online, offline and with an expired key, the update notice, the ordering database link, maintenance retries with the same ID, the repeat warning, layout size, and CSP errors. `E2E_SCREENSHOTS=<folder>` saves screenshots, and `E2E_LIVE_STORES=1` uses real store pages instead of synthetic copies.
+`e2e/extension.e2e.mjs` loads `dist` in a real browser with a simulated plugin API routed at the site's origin, so the service worker's real `fetch`, host permission and CSP are all exercised. It also covers Express addition (off by default, every fallback reason, one send despite closing and rapid reopening, uncertain and no answer never resent), team colors (valid, malformed, failed fetch keeps the last good, Unpair clears), both themes, layout sizes in each state, CSP errors and no remote font requests. Set `E2E_SCREENSHOTS` to a folder to save `built-v2-*.png` there for comparing with the mockup. It covers pairing, Deny and Allow, capture, draft persistence, rejected pages, twelve real clicks at one spot, pending and uncertain results, request payloads, a revoked device, Unpair online, offline and with an expired key, the update notice, the ordering database link, maintenance retries with the same ID, the repeat warning, layout size, and CSP errors. `E2E_SCREENSHOTS=<folder>` saves screenshots, and `E2E_LIVE_STORES=1` uses real store pages instead of synthetic copies.
 
 On Windows it opens a headed Edge and presses Chrome's real permission prompt through `e2e/press-prompt-button.ps1`, which only looks at that browser's own windows, so don't use the mouse during that part. Set `E2E_PROMPT=stub` or use another platform to simulate the prompt instead, which proves less. Set `E2E_CHANNEL` or `E2E_BROWSER` to choose a browser. Its copy of the manifest lists the test stores as `host_permissions`, because automation cannot click the toolbar, so it does not prove the toolbar permission grant. Http and localhost are never in the production manifest. A test build against a local preview adds them to its own copy. Never place a real credential, personal address, account header, cart, or complete authenticated page dump in fixtures.
 

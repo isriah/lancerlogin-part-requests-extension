@@ -1,32 +1,59 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Part Requests - Settings</title></head>
-<body class="options">
-  <header class="masthead"><div class="brand-mark" aria-hidden="true">↗</div><div><p class="eyebrow">ROBOTICS / PROCUREMENT</p><h1>Pair this browser with your team</h1></div><span class="badge">STUDENT DEVICE</span></header>
-  <main>
-    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
-    <p id="update-notice" class="update-notice" role="status" hidden><strong>Update available:</strong> <span id="update-text"></span> <a id="update-link" target="_blank" rel="noopener noreferrer" hidden>Get the update ↗</a></p>
-    <div class="columns">
-    <section class="card"><div class="section-heading"><h2><span class="step">01</span> Pair this device</h2><span id="pairing-state" class="badge">NOT PAIRED</span></div>
-      <form id="pair-form">
-        <p class="pair-note">PINs come from <code>/ordering-pin</code> in Discord. Run it in your team's server. The private reply gives you the site address and a PIN that works once and expires in 10 minutes.</p>
-        <label for="site-address">Site address</label><input id="site-address" autocomplete="off" spellcheck="false" placeholder="https://your-team-site.example">
-        <div class="grid"><div><label for="pin">PIN</label><input id="pin" autocomplete="off" spellcheck="false" placeholder="K7M2-9QXP" maxlength="32"></div><div><label for="device-label">Device name <span class="optional">optional</span></label><input id="device-label" autocomplete="off" maxlength="60" placeholder="Shop laptop"></div></div>
-        <p class="field-help">Chrome asks you to allow this one site. Choose Allow. The device name helps your team's Admin tell your devices apart.</p>
-        <div class="actions"><span></span><button id="pair" class="primary" type="submit">Pair this device</button></div>
+<html lang="en" class="app" data-theme="dark" data-kind="page"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Part Requests - Settings</title><script src="/appearance-boot.js"></script></head>
+<body>
+<div class="x-page"><div class="x-page-wrap">
+  <header class="x-page-head">
+    <div class="x-page-brand"><div class="brand-mark" aria-hidden="true">L</div><span class="brand-heading"><strong id="brand-name">LancerLogin</strong><span>Part Requests</span></span></div>
+    <script src="/appearance-boot.js"></script>
+    <div class="x-page-actions"><button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Light mode"><span class="theme-toggle-label" aria-hidden="true">Light mode</span><span class="theme-toggle-track" aria-hidden="true"><span></span></span></button></div>
+  </header>
+  <h1 class="visually-hidden">Part Requests settings</h1>
+  <div id="notice" class="x-tone" data-tone="neutral" role="status" aria-live="polite" hidden></div>
+  <p id="update-notice" class="x-tone" data-tone="warning" role="status" hidden><strong>Update available:</strong> <span id="update-text"></span> <a id="update-link" target="_blank" rel="noopener noreferrer" hidden>Get the update &#8599;</a></p>
+  <p id="default-colors-notice" class="ui-status settings-notice" role="status" hidden>Using LancerLogin's default colors until this device is paired. Then it uses your team's.</p>
+  <main class="x-columns">
+    <section class="ui-card">
+      <div class="x-card-head"><h2 id="pairing-title">Pair this device</h2><span id="pairing-state" class="status-pill ui-status pill-neutral">Not paired</span></div>
+      <form id="pair-form" class="x-card-body">
+        <p class="x-help">Run <code class="x-code">/ordering-pin</code> in your team's Discord server. The private reply gives you the site address and a PIN that works once and expires in 10 minutes.</p>
+        <div class="x-field"><label for="site-address">Site address</label><input id="site-address" autocomplete="off" spellcheck="false" placeholder="https://your-team-site.example"></div>
+        <div class="x-grid x-grid-2"><div class="x-field"><label for="pin">PIN</label><input id="pin" autocomplete="off" spellcheck="false" placeholder="K7M2-9QXP" maxlength="32"></div><div class="x-field"><label for="device-label">Device name <span class="x-optional">optional</span></label><input id="device-label" autocomplete="off" maxlength="60" placeholder="Shop laptop"></div></div>
+        <p class="x-help">Chrome asks you to allow this one site. Choose Allow.</p>
+        <div class="x-actions"><button id="pair" class="ui-button ui-button--primary" type="submit">Pair this device</button></div>
       </form>
-      <div id="paired-card" hidden>
-        <dl class="paired-facts"><dt>Paired as</dt><dd id="paired-member"></dd><dt>Site</dt><dd id="paired-origin"></dd><dt>Device</dt><dd id="paired-label"></dd></dl>
-        <div class="actions"><button id="unpair" type="button" class="secondary">Unpair this device</button></div>
-        <p class="field-help">Unpairing removes this device from your team's site, which frees one of your 5 device slots, then forgets the key on this computer. If the site can't be reached, it still unpairs here, and an Admin may need to remove the device. Drafts here are kept.</p>
+      <div id="paired-card" class="x-card-body" hidden>
+        <dl class="x-facts"><div id="paired-team-row" hidden><dt>Team</dt><dd id="paired-team"></dd></div><div><dt>Paired as</dt><dd id="paired-member"></dd></div><div><dt>Site</dt><dd id="paired-origin"></dd></div><div><dt>Device</dt><dd id="paired-label"></dd></div></dl>
+        <div class="x-swatches" role="group" aria-label="Team colors"><div id="swatch-primary" class="x-swatch"></div><div id="swatch-secondary" class="x-swatch"></div></div>
+        <p id="brand-checked" class="x-help"></p>
+        <div class="x-actions"><button id="unpair" type="button" class="ui-button">Unpair this device</button></div>
+        <p class="x-help">Unpairing frees one of your 5 device slots and forgets the key on this computer. If the site can't be reached, it still unpairs here, and an Admin may need to remove the device. Drafts are kept.</p>
       </div>
     </section>
-    <div class="column-stack">
-    <section id="defaults-card" class="card" hidden><h2><span class="step">02</span> Your defaults</h2><form id="defaults-form"><div class="grid"><div><label for="default-team">Team</label><select id="default-team" required></select></div><div><label for="default-recipient">Your Notion name</label><select id="default-recipient" required></select></div></div><p class="field-help">You can change these on each request. Your name is saved with your team's site, so other devices you pair start with it.</p><button class="primary" type="submit">Save defaults</button></form>
-      <p id="recipients-state" class="footnote"></p>
+    <div class="x-stack">
+      <section class="ui-card">
+        <div class="x-card-head"><h2>Your defaults</h2></div>
+        <div id="defaults-placeholder" class="x-card-body"><p class="x-help x-help-large">Pair this device first. Your team and your Notion name come from your team's site.</p></div>
+        <div id="defaults-card" hidden>
+          <form id="defaults-form" class="x-card-body">
+            <div class="x-field"><label for="default-team">Team</label><select id="default-team" required></select></div>
+            <div class="x-field"><label for="default-recipient">Your Notion name</label><select id="default-recipient" required></select></div>
+            <p class="x-help">You can change these on each request. Express addition needs both.</p>
+            <p id="recipients-state" class="x-help"></p>
+            <div class="x-actions"><button class="ui-button ui-button--primary" type="submit">Save defaults</button></div>
+          </form>
+        </div>
+      </section>
+      <section class="ui-card"><details class="settings-disclosure"><summary>Capture from 20 stores</summary><p class="x-help">Open one product, choose its options and click the extension. Other stores, cart pages and bulk capture aren't supported.</p><ul id="vendor-list" class="x-vendor-list"></ul></details></section>
+    </div>
+    <section class="ui-card">
+      <div class="x-card-head"><h2>Settings</h2></div>
+      <div class="x-card-body x-card-body-tight">
+        <label class="x-setting"><strong>Express addition</strong><span class="x-switch-wrap"><input id="express-enabled" type="checkbox" role="switch" disabled></span><span class="x-help">Click the toolbar icon and the request is sent right away when everything was filled in from the page. If anything needs checking, you get the form with the reason instead. A sent request can only be changed in Notion.</span></label>
+        <p id="settings-unpaired" class="x-help">Pair this device to turn this on.</p>
+      </div>
     </section>
-    <section class="card"><h2><span id="capture-step" class="step">03</span> Capture from 20 stores</h2><p>Open one product, choose its options, and click the extension. Review all captured values before creating the request.</p><details><summary>Supported stores and limits</summary><ul id="vendor-list" class="vendor-list"></ul><p class="field-help">Other stores, cart pages, and bulk capture are not supported. Product prices and SKUs may need manual correction.</p></details></section>
-    </div>
-    </div>
-    <footer>Part Requests · v<span id="version"></span> · Sends through your team's LancerLogin site</footer>
-  </main><script type="module" src="/src/options.ts"></script>
+  </main>
+  <footer>Part Requests &middot; v<span id="version"></span> &middot; Sends through your team's LancerLogin site &middot; <a href="THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener noreferrer">Font licenses</a></footer>
+</div></div>
+<script type="module" src="/src/options.ts"></script>
 </body></html>

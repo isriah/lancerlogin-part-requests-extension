@@ -34,11 +34,19 @@ An Admin can revoke a device, and leaving the active roster ends access. The ext
 
 ## Security and local data
 
-The manifest requests `activeTab`, `scripting` and `storage`, plus `optional_host_permissions` of `https://*/*`, from which it asks for one site, during your Pair click. Unpairing or pairing with another site gives the old one up. There are no persistent product-site permissions, content scripts, automatic browsing monitors, telemetry, external scripts, or remote code. The reader runs in the clicked tab's isolated world.
+The manifest requests `activeTab`, `scripting` and `storage`, plus `optional_host_permissions` of `https://*/*`, from which it asks for one site, during your Pair click. Unpairing or pairing with another site gives the old one up. There are no persistent product-site permissions, content scripts, automatic browsing monitors, telemetry, external scripts, or remote code. The CSP's `font-src 'self'` limits fonts to the ones bundled in the extension. The reader runs in the clicked tab's isolated world.
 
 The device key is saved in `chrome.storage.local`. On every service-worker start, storage access is restricted to `TRUSTED_CONTEXTS`, so content scripts cannot read it. Only the service worker reads the key and sends it, as a bearer token and only to the paired site's address. Requests do not follow redirects and send no cookies. The popup and Options pages are never given the key. Runtime messages are accepted only from this extension's popup and settings page. Chrome Sync is not used.
 
+Team colors come from the paired site's public `GET <site>/api/setup/status`, called by the service worker with no key or cookies, at pairing and at most once a day. Only `settings.primaryColor`, `settings.secondaryColor` and `settings.organizationName` are read. Both colors must match `^#[0-9a-fA-F]{6}$` and the name must be 1 to 100 characters with no control characters, or the whole answer is ignored and the last good values stay. Colors are only ever set as CSS custom properties, and the name only as plain text. The pages keep a `localStorage` copy of the theme, colors and name so the next page paints correctly at once. Unpair clears the colors, the name and that copy, and turns Express addition off.
+
 Local extension storage is not an encrypted credential vault. Anyone with access to the Chrome profile, its backups, extension debugging tools, or the local machine may be able to recover the key and saved drafts. Use a trusted browser profile, and ask an Admin to revoke the device if a computer is lost. Uninstalling the extension removes its local data; check uncertain submissions in Notion before reinstalling or clearing storage.
+
+## Express addition
+
+Express addition is off by default and lives in Options, on this device only. Unpairing or pairing with another site turns it off. The conditions are in the [README](../README.md#express-addition). Students need a saved team and Notion name for it to send.
+
+Express addition sends a NORMAL request with no click, so a team that wants a person to look at every request should leave it off. An Admin can't currently turn it off for a whole team.
 
 ## Troubleshooting
 

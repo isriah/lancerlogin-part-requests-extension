@@ -1,6 +1,6 @@
 // End-to-end run of the built extension in a real browser, against a simulated plugin API routed at the site's origin.
 // No real site, key, Notion database or Discord is involved. Product pages are small synthetic copies unless E2E_LIVE_STORES=1.
-// Run: npm run build && npm run e2e
+// Run: npm run build && npm run e2e. Set E2E_SCREENSHOTS to a folder to save built-v2-*.png there.
 //
 // The test copy of the manifest changes one thing: it lists the test stores under host_permissions, because automation cannot
 // click the toolbar icon and so cannot trigger activeTab. That is the one thing this cannot prove: Chrome's toolbar-click grant.
@@ -45,14 +45,24 @@ const api = {
   pins: new Set(['K7M29QXP']), revoked: false, calls: [], posts: [], gets: [], recipients: [], checks: [], recorded: new Map(), keysSeen: new Set(),
   behavior: 'ok', latency: 0, release: null, maintenanceLeft: 0, retryAfter: '1', repeats: [], teams: [{ id: 'team-1', name: 'Test Team One' }, { id: 'team-2', name: 'Test Team Two' }],
   people: [{ id: PERSON, name: 'Test Student A' }, { id: GUEST, name: 'Test Guest' }], defaultRecipientId: null, currentKey: DEVICE_KEY,
-  minimumVersion: '0.2.0', updateUrl: UPDATE_URL, databaseLink: DATABASE_URL, selfRevoke: 'ok', selfRevoked: [],
+  minimumVersion: '0.3.0', updateUrl: UPDATE_URL, databaseLink: DATABASE_URL, selfRevoke: 'ok', selfRevoked: [],
+  status: 'ok', statusBody: null, statusCalls: [], checkFails: false,
 };
+const TEAM_A = { primaryColor: '#0b3d91', secondaryColor: '#f58220', organizationName: 'Test Robotics Team A' };
+const TEAM_B = { primaryColor: '#ffd100', secondaryColor: '#00594c', organizationName: 'Test Robotics Team B' };
+api.statusBody = { settings: TEAM_A };
 const PAGE = 'https://app.notion.com/p/new-request';
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 async function plugin(route) {
   const request = route.request();
   const path = new URL(request.url()).pathname;
   const reply = (body, status = 200, headers = {}) => route.fulfill({ status, contentType: 'application/json', headers, body: JSON.stringify(body) });
+  // Core's public status, for the team's colors. It must never receive the device key.
+  if (path === '/api/setup/status') {
+    api.statusCalls.push(request.headers()['authorization'] ?? '');
+    if (api.status === 'offline') return route.abort('internetdisconnected');
+    return reply(api.statusBody, api.status === 'error' ? 500 : 200);
+  }
   if (!path.startsWith('/api/public/part-requests')) return route.fulfill({ status: 404, contentType: 'text/html', body: '<h1>Not the API</h1>' });
   const name = path.slice('/api/public/part-requests'.length);
   const key = /^Bearer (.+)$/.exec(request.headers()['authorization'] ?? '')?.[1];
@@ -70,7 +80,7 @@ async function plugin(route) {
   if (key !== api.currentKey || api.revoked) return reply({ error: 'This device is no longer paired. Run /ordering-pin in Discord and pair it again.', code: 'pair_again' }, 401);
   if (name === '/options') return reply({ memberName: 'Test Student A', teams: api.teams, recipients: api.people, defaultRecipientId: api.defaultRecipientId, statuses: ['NORMAL Request', 'Incomplete Request'], vendors: ['REV'], recipientsUpdatedMs: 1, minimumExtensionVersion: api.minimumVersion, updateUrl: api.updateUrl, databaseLink: api.databaseLink });
   if (name === '/recipient') { api.recipients.push(body); api.defaultRecipientId = body.notionUserId; return reply({ defaultRecipientId: body.notionUserId }); }
-  if (name === '/check') { api.checks.push(body); return reply({ repeats: api.repeats }); }
+  if (name === '/check') { api.checks.push(body); if (api.checkFails) return route.abort('internetdisconnected'); return reply({ repeats: api.repeats }); }
   if (name.startsWith('/requests/')) {
     const id = name.slice('/requests/'.length); api.gets.push(id);
     const saved = api.recorded.get(id);
@@ -84,6 +94,8 @@ async function plugin(route) {
     const id = body.submissionId;
     const respond = (status, value) => { api.recorded.set(id, { status, body: value }); return reply(value, status); };
     if (api.behavior === 'gateway') return route.fulfill({ status: 504, contentType: 'text/html', body: 'Gateway timeout' });
+    // Created, but the answer never arrived.
+    if (api.behavior === 'lost') { api.recorded.set(id, { status: 201, body: { submissionId: id, state: 'created', pageUrl: PAGE, repeats: [] } }); return route.fulfill({ status: 504, contentType: 'text/html', body: 'Gateway timeout' }); }
     if (api.behavior === 'uncertain') return respond(202, { submissionId: id, state: 'uncertain', error: 'Notion may or may not have created this request.', code: 'notion_uncertain' });
     if (api.behavior === 'failed') return respond(502, { submissionId: id, state: 'failed', error: 'Notion refused this request.', code: 'notion_400' });
     if (api.latency) await sleep(api.latency);
@@ -92,7 +104,17 @@ async function plugin(route) {
   }
   return reply({ error: 'Not found' }, 404);
 }
+const revPage = (title, price = '<div class="productView-price"><span data-product-price-without-tax>$30.00</span></div>', extra = '') => `<!doctype html><meta charset="utf-8"><title>${title}</title><div class="productView"><h1 class="productView-title">${title}</h1>${price}<span data-product-sku>TEST-1</span>${extra}</div>`;
+const expressUrl = name => `https://www.revrobotics.com/test-express-${name}/`;
+const expressPages = {
+  ok: revPage('Test bearing, sending'), rapid: revPage('Test bearing, rapid reopen'), uncertain: revPage('Test bearing, uncertain'), noanswer: revPage('Test bearing, no answer'), refused: revPage('Test bearing, refused'), news: revPage('Test bearing, new request'), edited: revPage('Test bearing, edited', ''), closed: revPage('Test bearing, popup closed'), lightuncertain: revPage('Test bearing, light uncertain'), lostanswer: revPage('Test bearing, answer lost'),
+  price: revPage('Test bearing, no price', ''),
+  variant: revPage('Test hex shaft', '<div class="productView-price"><span data-product-price-without-tax>$12.50</span></div>', '<div data-product-option-change><select class="form-select form-select--small" name="attribute[1]"><option value="">Choose a length</option><option value="4">4 in.</option></select></div>'),
+  currency: revPage('Test crimp terminals', '<div class="productView-price"><span data-product-price-without-tax>\u20ac19.50</span></div>'),
+  repeat: revPage('Test bearing, repeat'), check: revPage('Test bearing, check fails'), defaults: revPage('Test bearing, no defaults'), all: revPage('Test bearing, every reason', ''),
+};
 const storePages = {
+  ...Object.fromEntries(Object.entries(expressPages).map(([name, html]) => [expressUrl(name), html])),
   [productUrl]: '<!doctype html><title>NEO 550</title><div class="productView"><h1 class="productView-title">NEO 550 Brushless Motor</h1><div class="productView-price"><span data-product-price-without-tax>$30.00</span></div><span data-product-sku>REV-21-1651</span></div>',
   'https://www.pololu.com/search/compare/1': '<!doctype html><title>Compare</title><h1>Compare products</h1>',
   'https://example.com/': '<!doctype html><title>Other site</title><h1>Not a store</h1>',
@@ -100,8 +122,21 @@ const storePages = {
 
 // waitForFunction evaluates strings, which the extension's CSP correctly refuses.
 const until = async (page, predicate, timeout, arg) => { const end = Date.now() + timeout; while (Date.now() < end) { if (await page.evaluate(predicate, arg)) return true; await sleep(100); } return false; };
-const fits = (page, height) => page.evaluate(limit => document.documentElement.scrollHeight <= limit && document.documentElement.scrollWidth <= innerWidth + 1, height);
-const scrollHeight = page => page.evaluate(() => String(document.documentElement.scrollHeight));
+const fits = (page, height) => page.evaluate(limit => {
+  const frame = document.getElementById('frame') ?? document.documentElement;
+  // Every control a student can reach stays at the dashboard's 44px, whatever else is showing.
+  const small = [...document.querySelectorAll('button,a.ui-button,select,textarea,input:not([type=checkbox]):not([role=switch])')].filter(node => { const { height: tall } = node.getBoundingClientRect(); return tall > 0 && tall < 43.5; });
+  return document.fonts.ready.then(() => !small.length && document.documentElement.scrollHeight <= limit && document.documentElement.scrollWidth <= innerWidth + 1 && frame.scrollHeight <= limit && frame.scrollWidth <= frame.clientWidth + 1);
+}, height);
+const scrollHeight = page => page.evaluate(() => `${document.documentElement.scrollHeight} frame ${document.getElementById('frame')?.scrollHeight}`);
+// Saved for comparing with the mockup: the popup as Chrome shows it, cut to its own frame, and pages as they are.
+const shot = async (page, name) => {
+  if (!shots) return;
+  const frame = page.locator('#frame');
+  await page.evaluate(() => document.fonts.ready);
+  if (await frame.count()) await frame.screenshot({ path: join(shots, `built-v2-${name}.png`) });
+  else await page.screenshot({ path: join(shots, `built-v2-${name}.png`), fullPage: true });
+};
 const textOf = (page, id) => page.textContent(`#${id}`);
 const titleIs = (page, text, timeout = 10000) => until(page, wanted => !document.getElementById('result').hidden && document.getElementById('result-title').textContent === wanted, timeout, text);
 
@@ -110,7 +145,7 @@ const context = await chromium.launchPersistentContext(profile, {
   ...(process.env.E2E_BROWSER ? { executablePath: process.env.E2E_BROWSER } : { channel }), headless: !realPrompt && !process.env.E2E_HEADED, viewport: { width: 1100, height: 900 },
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, '--no-first-run', '--no-default-browser-check'],
 });
-const problems = [];
+const problems = [], allRequests = [], fontRequests = [], extensionPageRemote = [];
 function pressPrompt(button) {
   // Playwright exposes no browser PID, so find this run's Edge by its unique profile folder.
   const listed = execFileSync('powershell.exe', ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like '*${profile.replaceAll("'", "''")}*' -and $_.CommandLine -notlike '*--type=*' } | Select-Object -First 1).ProcessId`], { encoding: 'utf8' }).trim();
@@ -120,6 +155,14 @@ function pressPrompt(button) {
 }
 try {
   await context.route(`${SITE}/**`, plugin);
+  context.on('request', request => {
+    const url = request.url();
+    allRequests.push(url);
+    if (request.resourceType() === 'font') fontRequests.push(url);
+    let from = '';
+    try { from = request.frame().url(); } catch { /* The service worker has no frame, and it is allowed to call the site. */ }
+    if (from.startsWith('chrome-extension://') && !url.startsWith('chrome-extension://') && !url.startsWith('data:')) extensionPageRemote.push(url);
+  });
   if (!process.env.E2E_LIVE_STORES) for (const [url, body] of Object.entries(storePages)) await context.route(url, route => route.fulfill({ status: 200, contentType: 'text/html', body }));
 
   let worker = context.serviceWorkers()[0];
@@ -136,9 +179,9 @@ try {
   await options.setViewportSize({ width: 1366, height: 650 });
   check('Options: says where PINs come from', /\/ordering-pin/.test(await textOf(options, 'pair-form')) && /Discord/.test(await textOf(options, 'pair-form')));
   check('Options: no token, database or guest import UI', await options.evaluate(() => ['token', 'database-url', 'data-source', 'import-form'].every(name => !document.getElementById(name))));
-  check('Options: header badge renamed', !/PILOT/.test(await options.textContent('.masthead')), await options.textContent('.masthead'));
+  check('Options: header badge renamed', !/PILOT/.test(await options.textContent('.x-page-head')), await options.textContent('.x-page-head'));
   check('Options: pairing screen fits 1366x650', await fits(options, 650), await scrollHeight(options));
-  if (shots) await options.screenshot({ path: join(shots, 'pairing-screen.png') });
+  await shot(options, 'pairing-screen');
 
   const send = message => options.evaluate(value => chrome.runtime.sendMessage(value), message);
   const canReach = () => options.evaluate(origin => chrome.permissions.contains({ origins: [`${origin}/*`] }), SITE);
@@ -150,6 +193,21 @@ try {
     if (!button || !realPrompt) return 'no prompt expected';
     return pressPrompt(button);
   }
+
+  // ---- Unpaired: LancerLogin's default colors, bundled fonts, dark by default.
+  const cssVar = (target, name) => target.evaluate(n => getComputedStyle(document.documentElement).getPropertyValue(n).trim().toLowerCase(), name);
+  check('Colors: unpaired uses the default primary', (await cssVar(options, '--primary')) === '#b80100', await cssVar(options, '--primary'));
+  check('Colors: unpaired uses the default secondary', (await cssVar(options, '--secondary')) === '#eeb822', await cssVar(options, '--secondary'));
+  check('Colors: unpaired shows LancerLogin and says so', (await textOf(options, 'brand-name')) === 'LancerLogin' && await options.isVisible('#default-colors-notice'));
+  check('Theme: starts dark, and the switch says Light mode is off', (await options.getAttribute('html', 'data-theme')) === 'dark' && (await options.getAttribute('#theme-toggle', 'aria-checked')) === 'false');
+  const fontFaces = () => options.evaluate(async () => { await document.fonts.ready; return { roboto: ['400', '500', '700'].every(w => document.fonts.check(`${w} 16px Roboto`)), bebas: document.fonts.check('16px "Bebas Neue"'), body: getComputedStyle(document.querySelector('label')).fontFamily, heading: getComputedStyle(document.querySelector('h2')).fontFamily }; });
+  const faces = await fontFaces();
+  check('Fonts: Roboto 400, 500 and 700 and Bebas Neue load from the extension', faces.roboto && faces.bebas, JSON.stringify(faces));
+  check('Fonts: headings use Bebas Neue and fields use Roboto', /Bebas Neue/.test(faces.heading) && /Roboto/.test(faces.body), JSON.stringify(faces));
+  // Chrome's own stylesheet for extension pages shrinks the body to 75% unless told otherwise.
+  check('Fonts: fields are full size, not the extension default', await options.evaluate(() => getComputedStyle(document.body).fontSize === '17px' && getComputedStyle(document.getElementById('site-address')).fontSize === '17px' && /Roboto/.test(getComputedStyle(document.body).fontFamily)), await options.evaluate(() => getComputedStyle(document.body).fontSize));
+  check('Express: the switch is off and disabled until paired', !(await options.isChecked('#express-enabled')) && await options.isDisabled('#express-enabled'));
+  await shot(options, 'options-unpaired');
 
   // Bad addresses never reach Chrome's prompt or the network.
   const callsBefore = api.calls.length;
@@ -166,7 +224,7 @@ try {
   check(`Pairing: Deny shows a clear message (${realPrompt ? 'real prompt' : 'simulated'})`, /You chose Deny/.test(await textOf(options, 'notice')) && /not used/.test(await textOf(options, 'notice')), `${denied}: ${await textOf(options, 'notice')}`);
   check('Pairing: Deny sends nothing and spends no PIN', !api.calls.includes('POST /pair') && api.pins.has('K7M29QXP'));
   check('Pairing: Deny leaves no access', realPrompt ? !(await canReach()) : true);
-  if (shots) await options.screenshot({ path: join(shots, 'pairing-denied.png') });
+  await shot(options, 'pairing-denied');
 
   // Unpaired popup: capture and drafts still work, sending does not.
   async function popupFor(productPage) {
@@ -193,7 +251,7 @@ try {
   check('Popup unpaired: still captures the product', /NEO 550/.test(await popup.inputValue('#description')));
   check('Popup unpaired: Create is disabled', await popup.isDisabled('#submit'));
   check('Popup unpaired: fits 600px', await fits(popup, 600), await scrollHeight(popup));
-  if (shots) await popup.screenshot({ path: join(shots, 'popup-unpaired.png') });
+  await shot(popup, 'popup-unpaired');
   await popup.fill('#description', '[TEST] typed before pairing');
   await popup.waitForTimeout(300);
   popup = await reopen(popup, page);
@@ -214,12 +272,16 @@ try {
   check('Pairing: succeeds with a messy address and no hyphen', await visible(options, '#paired-card'), await textOf(options, 'notice'));
   check('Pairing: the path was normalized and /api added', api.calls.includes('POST /pair') && api.calls.includes('GET /options'));
   check('Pairing: sends the device label', api.pairedLabel === 'Test laptop');
-  check('Options: shows who, where and which device', /Test Student A/.test(await textOf(options, 'paired-member')) && (await textOf(options, 'paired-origin')) === SITE && (await textOf(options, 'paired-label')) === 'Test laptop');
+  check('Colors: read once at pairing, without the device key', api.statusCalls.length === 1 && api.statusCalls[0] === '', JSON.stringify(api.statusCalls));
+  check('Colors: the team\'s primary applies after pairing', await until(options, () => getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() === '#0b3d91', 8000), await cssVar(options, '--primary'));
+  check('Colors: the organization name shows as plain text', (await textOf(options, 'brand-name')) === TEAM_A.organizationName && (await textOf(options, 'paired-team')) === TEAM_A.organizationName);
+  check('Colors: swatches and the check time show', /#0B3D91/.test(await textOf(options, 'swatch-primary')) && /#F58220/.test(await textOf(options, 'swatch-secondary')) && /Checked today/.test(await textOf(options, 'brand-checked')));
+  check('Options: shows who, where and which device', /Test Student A/.test(await textOf(options, 'paired-member')) && (await textOf(options, 'paired-origin')) === new URL(SITE).host && (await textOf(options, 'paired-label')) === 'Test laptop');
   check('Options: PIN field is cleared', await options.evaluate(() => document.getElementById('pin').value === ''));
   check('Options: paired screen fits 1366x650', await fits(options, 650), await scrollHeight(options));
   check('Options: Unpair explains it frees a slot, and what happens offline', /frees one of your 5 device slots/.test(await textOf(options, 'paired-card')) && /an Admin may need to remove/.test(await textOf(options, 'paired-card')));
   check('Options: at the minimum version there is no update notice', !(await visible(options, '#update-notice')));
-  if (shots) await options.screenshot({ path: join(shots, 'pairing-paired.png') });
+  await shot(options, 'pairing-paired');
 
   // Defaults: teams and people from /options, the person saved with the site.
   check('Options: teams come from the plugin', await options.$$eval('#default-team option', list => list.some(o => o.textContent === 'Test Team One')));
@@ -238,24 +300,80 @@ try {
   check('Options: no sideways scroll at narrow width', await reopened.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await reopened.close();
 
-  // The update notice: the built version is 0.2.0, and 0.10.0 is above it only when compared as numbers.
+  // The update notice: the built version is 0.3.0, and 0.10.0 is above it only when compared as numbers.
   api.minimumVersion = '0.10.0';
   const outdated = watch(await context.newPage());
   await outdated.goto(optionsUrl);
   await outdated.setViewportSize({ width: 1366, height: 650 });
-  check('Update notice: Options shows it below the minimum, comparing numbers', await until(outdated, () => !document.getElementById('update-notice').hidden, 10000) && /0\.2\.0/.test(await textOf(outdated, 'update-text')) && /0\.10\.0/.test(await textOf(outdated, 'update-text')));
+  check('Update notice: Options shows it below the minimum, comparing numbers', await until(outdated, () => !document.getElementById('update-notice').hidden, 10000) && /0\.3\.0/.test(await textOf(outdated, 'update-text')) && /0\.10\.0/.test(await textOf(outdated, 'update-text')));
   check('Update notice: Options links to the releases page', (await outdated.getAttribute('#update-link', 'href')) === UPDATE_URL && (await outdated.getAttribute('#update-link', 'target')) === '_blank');
   check('Update notice: Options still works', await visible(outdated, '#paired-card') && !(await outdated.isDisabled('#unpair')));
   check('Options with the update notice fits 1366x650', await fits(outdated, 650), await scrollHeight(outdated));
-  if (shots) await outdated.screenshot({ path: join(shots, 'options-update-notice.png') });
+  await shot(outdated, 'options-update-notice');
   await outdated.close();
-  api.minimumVersion = '0.2.0';
+  api.minimumVersion = '0.3.0';
+
+  // ---- Team colors: strict validation, last good kept, at most daily.
+  const rendered = target => target.evaluate(() => {
+    const css = getComputedStyle(document.documentElement), button = getComputedStyle(document.querySelector('.ui-button--primary'));
+    return { primary: css.getPropertyValue('--primary').trim(), secondary: css.getPropertyValue('--secondary').trim(), button: button.backgroundColor, text: button.color, edge: button.borderTopColor, focus: css.getPropertyValue('--ui-focus').trim() };
+  });
+  const relight = async () => { await options.evaluate(() => chrome.storage.local.set({ brandAttemptAt: Date.now() - 25 * 3600_000 })); const before = api.statusCalls.length; await options.reload(); await options.waitForSelector('#paired-card:not([hidden])'); await until(options, () => true, 100); const end = Date.now() + 8000; while (api.statusCalls.length === before && Date.now() < end) await sleep(100); await sleep(400); await options.reload(); await options.waitForSelector('#paired-card:not([hidden])'); return api.statusCalls.length - before; };
+  const teamAButton = await rendered(options);
+  check('Colors: the primary button really is painted from the tokens', teamAButton.button === 'rgb(11, 61, 145)' && teamAButton.text === 'rgb(255, 255, 255)', JSON.stringify(teamAButton));
+  check('Colors: a dark primary gets a readable edge on the dark card', teamAButton.edge !== 'rgb(11, 61, 145)', JSON.stringify(teamAButton));
+  check('Colors: the status pill keeps its fixed tone', await options.evaluate(() => getComputedStyle(document.getElementById('pairing-state')).color) === 'rgb(183, 247, 209)');
+  await shot(options, 'options-paired');
+  let statusBefore = api.statusCalls.length;
+  await options.reload();
+  await options.waitForSelector('#paired-card:not([hidden])');
+  await sleep(600);
+  check('Colors: not asked for again within a day', api.statusCalls.length === statusBefore, `${api.statusCalls.length - statusBefore} more`);
+  for (const [name, body] of [['a short color', { settings: { ...TEAM_B, primaryColor: '#abc' } }], ['a CSS injection', { settings: { ...TEAM_B, secondaryColor: '#000000;background:url(https://evil.example.test/x)' } }], ['a name with a line break', { settings: { ...TEAM_B, organizationName: 'x\ny' } }], ['no settings', {}]]) {
+    api.statusBody = body;
+    const asked = await relight();
+    check(`Colors: ${name} is refused and the last good stay`, asked === 1 && (await cssVar(options, '--primary')) === '#0b3d91' && (await textOf(options, 'brand-name')) === TEAM_A.organizationName, `asked ${asked}, ${await cssVar(options, '--primary')}`);
+  }
+  api.status = 'offline';
+  check('Colors: a failed fetch keeps the last good', (await relight()) === 1 && (await cssVar(options, '--primary')) === '#0b3d91' && (await rendered(options)).button === 'rgb(11, 61, 145)');
+  api.status = 'error'; api.statusBody = { settings: TEAM_B };
+  check('Colors: an error status keeps the last good', (await relight()) === 1 && (await cssVar(options, '--primary')) === '#0b3d91');
+  api.status = 'ok';
+  check('Colors: a later good answer replaces them', (await relight()) === 1 && (await cssVar(options, '--primary')) === '#ffd100' && (await textOf(options, 'brand-name')) === TEAM_B.organizationName);
+  const yellow = await rendered(options);
+  check('Colors: a light primary gets dark text', yellow.text === 'rgb(17, 23, 20)', JSON.stringify(yellow));
+  await shot(options, 'options-paired-teamb-dark');
+  // The theme and the colors are set before the page has a body, so neither can flash.
+  const firstPaint = async () => {
+    const page = await context.newPage();
+    await page.addInitScript(() => { new MutationObserver((_, watcher) => { if (document.body) { watcher.disconnect(); const root = document.documentElement; window.__first = { theme: root.getAttribute('data-theme'), primary: root.style.getPropertyValue('--primary') }; } }).observe(document, { childList: true, subtree: true }); });
+    await page.goto(optionsUrl);
+    const value = await page.evaluate(() => window.__first);
+    await page.close();
+    return value;
+  };
+  await options.click('#theme-toggle');
+  check('Theme: the switch turns on Light mode at once', (await options.getAttribute('html', 'data-theme')) === 'light' && (await options.getAttribute('#theme-toggle', 'aria-checked')) === 'true');
+  await until(options, () => chrome.storage.local.get('theme').then(v => v.theme === 'light'), 3000);
+  const flash = await firstPaint();
+  check('Theme: a new page is already light before its body exists', flash?.theme === 'light' && flash?.primary === '#ffd100', JSON.stringify(flash));
+  await options.reload();
+  await options.waitForSelector('#paired-card:not([hidden])');
+  check('Theme: light keeps the choice after a reload', (await options.getAttribute('html', 'data-theme')) === 'light');
+  check('Theme: light surfaces apply', await options.evaluate(() => getComputedStyle(document.querySelector('.ui-card')).backgroundColor) === 'rgb(255, 255, 255)');
+  check('Options paired, light: fits 1366x650', await fits(options, 650), await scrollHeight(options));
+  await shot(options, 'options-paired-teamb-light');
+  await options.click('#theme-toggle');
+  await until(options, () => chrome.storage.local.get('theme').then(v => v.theme === 'dark'), 3000);
+  api.statusBody = { settings: TEAM_A };
+  await relight();
 
   // The key stays in the worker. Popup messages and product pages never see it.
   const asPopup = await send({ type: 'settings' });
   check('The settings a page receives never contain the key', !JSON.stringify(asPopup).includes(DEVICE_KEY));
   check('Storage is limited to trusted contexts', await worker.evaluate(async () => (await chrome.storage.local.getAccessLevel?.()) ?? 'n/a').then(a => a === 'n/a' || a?.accessLevel === 'TRUSTED_CONTEXTS' || a === 'TRUSTED_CONTEXTS').catch(() => true));
   check('Every keyed call sent the bearer key', api.keysSeen.size === 1 && api.keysSeen.has(DEVICE_KEY));
+  check('The colors route never received the bearer key', api.statusCalls.every(value => value === ''));
 
   // ---- Rejected pages cannot create anything.
   let other = await product('https://example.com/');
@@ -279,13 +397,15 @@ try {
   check('Saved defaults applied', (await popup.inputValue('#team')) === 'team-1' && (await popup.inputValue('#recipient')) === PERSON);
   check('Vendor derived from URL', (await popup.textContent('#vendor')).trim() === 'REV');
   check('Popup paired: no pairing prompt', !(await visible(popup, '#setup')));
+  check('Popup paired: uses the team colors and name, from the worker', (await cssVar(popup, '--primary')) === '#0b3d91' && (await textOf(popup, 'brand-name')) === TEAM_A.organizationName, await cssVar(popup, '--primary'));
+  check('Popup paired: shows no Carts button yet', !(await popup.evaluate(() => [...document.querySelectorAll('button,a')].some(n => /carts/i.test(n.textContent)))));
   check('Create request sits at the top of the form', await popup.evaluate(() => document.getElementById('submit').getBoundingClientRect().top < document.getElementById('description').getBoundingClientRect().top));
-  if (shots) await popup.screenshot({ path: join(shots, 'popup-form.png'), fullPage: true });
+  await shot(popup, 'popup-form');
 
   // Chrome caps toolbar popups at 800x600, so the form must fit, even with every warning showing.
   check('Popup form fits without scrolling', await fits(popup, 600), await scrollHeight(popup));
   const showWarnings = paired => popup.evaluate(isPaired => {
-    const fill = (id, lines) => { const list = document.getElementById(id); list.replaceChildren(...lines.map(text => Object.assign(document.createElement('li'), { textContent: text }))); list.hidden = false; };
+    const fill = (id, lines) => { const list = document.getElementById(id); list.replaceChildren(...lines.map(text => Object.assign(document.createElement('li'), { textContent: text }))); list.parentElement.hidden = false; };
     fill('capture-issues', ['Select all product options on the store page, or enter the exact variant and price manually.', 'Unit price needs your review.', 'SKU was not confirmed; it is optional.']);
     document.getElementById('currency-row').hidden = false;
     const n = document.getElementById('notice'); n.hidden = false; n.textContent = 'This device is no longer paired. Run /ordering-pin in Discord and pair it again.';
@@ -298,10 +418,10 @@ try {
       document.getElementById('setup').hidden = false; document.getElementById('setup-title').textContent = 'Pair this device again'; document.getElementById('setup-message').textContent = 'It is no longer paired. Run /ordering-pin in Discord for a new PIN. Your drafts are kept.';
     }
   }, paired);
-  const hideWarnings = () => popup.evaluate(() => { for (const name of ['capture-issues', 'validation', 'currency-row', 'notice', 'repeat-warning', 'setup']) document.getElementById(name).hidden = true; });
+  const hideWarnings = () => popup.evaluate(() => { for (const name of ['capture-issues-box', 'validation-box', 'currency-row', 'notice', 'repeat-warning', 'setup']) document.getElementById(name).hidden = true; });
   await showWarnings(true);
   check('Popup form still fits with every warning showing', await fits(popup, 600), await scrollHeight(popup));
-  if (shots) await popup.screenshot({ path: join(shots, 'popup-worst-case.png') });
+  await shot(popup, 'popup-worst-case');
   await hideWarnings();
   await showWarnings(false);
   check('Popup form still fits with every unpaired warning showing', await fits(popup, 600), await scrollHeight(popup));
@@ -315,11 +435,11 @@ try {
   check('Update notice: the popup links to the releases page', (await popup.getAttribute('#update-link', 'href')) === UPDATE_URL);
   check('Update notice: the popup can still send', !(await popup.isDisabled('#submit')));
   check('Popup with the update notice fits 600px', await fits(popup, 600), await scrollHeight(popup));
-  if (shots) await popup.screenshot({ path: join(shots, 'popup-update-notice.png') });
+  await shot(popup, 'popup-update-notice');
   await popup.evaluate(() => {
     const list = document.getElementById('capture-issues');
     list.replaceChildren(...['Select all product options on the store page, or enter the exact variant and price manually.', 'Unit price needs your review.', 'SKU was not confirmed; it is optional.'].map(text => Object.assign(document.createElement('li'), { textContent: text })));
-    list.hidden = false; document.getElementById('currency-row').hidden = false;
+    list.parentElement.hidden = false; document.getElementById('currency-row').hidden = false;
   });
   check('Update notice: stays beside capture warnings', await visible(popup, '#update-notice'));
   check('Popup with the update notice and capture warnings fits 600px', await fits(popup, 600), await scrollHeight(popup));
@@ -332,7 +452,7 @@ try {
   check('Popup with an update due and every unpaired warning fits 600px', await fits(popup, 600), await scrollHeight(popup));
   await hideWarnings();
   check('Update notice: returns when those clear', await visible(popup, '#update-notice'));
-  api.minimumVersion = '0.2.0';
+  api.minimumVersion = '0.3.0';
   popup = await reopen(popup, page);
   await popup.waitForSelector('#request-form:not([hidden])');
   check('Update notice: gone once the version meets the minimum', await until(popup, () => document.getElementById('update-notice').hidden, 8000));
@@ -367,7 +487,7 @@ try {
   check('Repeat warning links to the earlier request', (await popup.getAttribute('#repeat-link', 'href')) === 'https://app.notion.com/p/earlier-request');
   check('Repeat warning does not block sending', !(await popup.isDisabled('#submit')));
   check('Popup with the repeat warning fits 600px', await fits(popup, 600), await scrollHeight(popup));
-  if (shots) await popup.screenshot({ path: join(shots, 'popup-repeat-warning.png') });
+  await shot(popup, 'popup-repeat-warning');
   api.repeats = [];
 
   // Real mouse clicks at one spot, at realistic speed: the screen changing under the cursor must not create more.
@@ -403,7 +523,7 @@ try {
   api.release?.();
   check('Success shown after pending resolves', await titleIs(popup, 'Request created'), await textOf(popup, 'result-title'));
   check('Open in Notion uses the returned link', (await popup.getAttribute('#notion-link', 'href')) === PAGE);
-  if (shots) await popup.screenshot({ path: join(shots, 'popup-success.png'), fullPage: true });
+  await shot(popup, 'popup-success');
 
   // The request payload is exactly the plugin's contract.
   const sent = api.posts[0];
@@ -462,7 +582,7 @@ try {
   await popup.waitForTimeout(800);
   check('Uncertain result is not resent on reopen', api.posts.length === before + 1, `posts=${api.posts.length}`);
   check('Still uncertain after reopening', (await textOf(popup, 'result-title')) === 'Check Notion before retrying');
-  if (shots) await popup.screenshot({ path: join(shots, 'popup-uncertain.png'), fullPage: true });
+  await shot(popup, 'popup-uncertain');
   api.behavior = 'ok';
   const uncertainId = api.posts.at(-1).submissionId;
   await popup.check('#checked-notion');
@@ -509,7 +629,7 @@ try {
   before = api.posts.length;
   await popup.click('#submit');
   check('During maintenance the popup says the site is updating', await until(popup, () => /updating/.test(document.getElementById('notice').textContent), 8000), await textOf(popup, 'notice'));
-  if (shots) await popup.screenshot({ path: join(shots, 'popup-maintenance.png') });
+  await shot(popup, 'popup-maintenance');
   check('After maintenance the request is created', await titleIs(popup, 'Request created', 20000), await textOf(popup, 'result-title'));
   const tries = api.posts.slice(before);
   check('503 retry resends with the same ID', tries.length === 3 && new Set(tries.map(p => p.submissionId)).size === 1, `tries=${tries.length}`);
@@ -571,7 +691,7 @@ try {
   check('Revoked device: the message says what to do', /pair it again/.test(await textOf(popup, 'notice')), await textOf(popup, 'notice'));
   check('Revoked device: Create is disabled', await popup.isDisabled('#submit'));
   check('Revoked device: the popup fits 600px', await fits(popup, 600), await scrollHeight(popup));
-  if (shots) await popup.screenshot({ path: join(shots, 'popup-revoked.png') });
+  await shot(popup, 'popup-revoked');
   check('Revoked device: the key is forgotten', !('deviceKey' in await options.evaluate(() => chrome.storage.local.get('deviceKey'))));
   popup = await reopen(popup, page);
   await popup.waitForSelector('#request-form:not([hidden])');
@@ -579,9 +699,9 @@ try {
   check('Revoked device: the team and person are kept', (await popup.inputValue('#team')) === 'team-1' && (await popup.inputValue('#recipient')) === PERSON);
   await options.reload();
   await options.waitForSelector('#pair-form:not([hidden])');
-  check('Options: shows pair again with the site filled in', (await textOf(options, 'pairing-state')) === 'PAIR AGAIN' && (await options.inputValue('#site-address')) === SITE && /drafts are kept/.test(await textOf(options, 'notice')));
+  check('Options: shows pair again with the site filled in', (await textOf(options, 'pairing-state')) === 'Pair again' && (await options.inputValue('#site-address')) === SITE && /drafts are kept/.test(await textOf(options, 'notice')));
   check('Options: the pair-again screen fits 1366x650', await fits(options, 650), await scrollHeight(options));
-  if (shots) await options.screenshot({ path: join(shots, 'pairing-again.png') });
+  await shot(options, 'pairing-again');
 
   api.pins.add('K7M29QXA'); api.currentKey = SECOND_KEY;
   // The site is already allowed, so Chrome grants it again with no prompt.
@@ -614,7 +734,7 @@ try {
   options.once('dialog', dialog => dialog.accept());
   await options.click('#unpair');
   await options.waitForSelector('#pair-form:not([hidden])', { timeout: 15000 }).catch(() => {});
-  check('Unpair offline: returns to the pairing screen', await visible(options, '#pair-form') && (await textOf(options, 'pairing-state')) === 'NOT PAIRED');
+  check('Unpair offline: returns to the pairing screen', await visible(options, '#pair-form') && (await textOf(options, 'pairing-state')) === 'Not paired');
   check('Unpair offline: says an Admin may need to remove it', /Unpaired on this computer/.test(await textOf(options, 'notice')) && /an Admin may need to remove it/.test(await textOf(options, 'notice')), await textOf(options, 'notice'));
   check('Unpair offline: the key is gone', !('deviceKey' in await options.evaluate(() => chrome.storage.local.get('deviceKey'))));
   check('Unpair offline: Chrome\'s access to the site is removed', realPrompt ? !(await canReach()) : true);
@@ -629,7 +749,7 @@ try {
   options.once('dialog', dialog => dialog.accept());
   await options.click('#unpair');
   await options.waitForSelector('#pair-form:not([hidden])', { timeout: 10000 }).catch(() => {});
-  check('Unpair with an expired key: still unpairs, and says an Admin may need to remove it', (await textOf(options, 'pairing-state')) === 'NOT PAIRED' && /an Admin may need to remove it/.test(await textOf(options, 'notice')), await textOf(options, 'notice'));
+  check('Unpair with an expired key: still unpairs, and says an Admin may need to remove it', (await textOf(options, 'pairing-state')) === 'Not paired' && /an Admin may need to remove it/.test(await textOf(options, 'notice')), await textOf(options, 'notice'));
 
   // Unpair: tells the site, frees the slot, forgets the key and the site's access, and keeps drafts.
   api.selfRevoke = 'ok'; api.pins.add('K7M29QXD');
@@ -640,8 +760,8 @@ try {
   await options.click('#unpair');
   await options.waitForSelector('#pair-form:not([hidden])', { timeout: 5000 }).catch(() => {});
   check('Unpair: says the slot is free, and needs no Admin', /frees one of your 5 device slots/.test(await textOf(options, 'notice')) && !/Admin/.test(await textOf(options, 'notice')), await textOf(options, 'notice'));
-  if (shots) await options.screenshot({ path: join(shots, 'unpaired.png') });
-  check('Unpair: returns to the pairing screen', await visible(options, '#pair-form') && (await textOf(options, 'pairing-state')) === 'NOT PAIRED');
+  await shot(options, 'unpaired');
+  check('Unpair: returns to the pairing screen', await visible(options, '#pair-form') && (await textOf(options, 'pairing-state')) === 'Not paired');
   check('Unpair: the key is gone', !('deviceKey' in await options.evaluate(() => chrome.storage.local.get('deviceKey'))));
   check('Unpair: Chrome\'s access to the site is removed', realPrompt ? !(await canReach()) : true);
   check('Unpair: calls the site once, with the key, then nothing else', api.calls.slice(callsBeforeUnpair).join() === 'POST /devices/self/revoke' && api.selfRevoked.at(-1) === api.currentKey, api.calls.slice(callsBeforeUnpair).join());
@@ -650,9 +770,316 @@ try {
   check('Unpair: the draft on this page is kept', /NEO 550/.test(await popup.inputValue('#description')) && await popup.isDisabled('#submit'));
   await popup.close(); await page.close();
 
+  // Unpair cleared the team's colors and name, in the page and in storage.
+  check('Colors: Unpair returns to the default colors', (await cssVar(options, '--primary')) === '#b80100' && (await textOf(options, 'brand-name')) === 'LancerLogin');
+  check('Colors: Unpair clears the saved colors and the synchronous copy', await options.evaluate(async () => !(await chrome.storage.local.get('brand')).brand && !(localStorage.getItem('part-requests-appearance') ?? '').includes('tokens')));
+  check('Options unpaired: fits 1366x650', await fits(options, 650), await scrollHeight(options));
+
+  // ---- Express addition. It's off until a student turns it on, and a page's whole flow runs in the worker.
+  api.selfRevoke = 'ok'; api.pins.add('K7M29QXE');
+  await pairWith(SITE, 'K7M29QXE', 'Test laptop', 'Allow');
+  await options.waitForSelector('#paired-card:not([hidden])', { timeout: 15000 }).catch(() => {});
+  await options.selectOption('#default-team', 'team-1');
+  await options.selectOption('#default-recipient', PERSON);
+  await options.evaluate(() => document.getElementById('defaults-form').requestSubmit());
+  await until(options, () => /Defaults saved/.test(document.getElementById('notice').textContent), 10000);
+  const expressCount = () => api.posts.length;
+  const reasons = popup2 => popup2.textContent('#express-reasons');
+  let start = expressCount();
+  let express = await product(expressUrl('closed'));
+  popup = await popupFor(express);
+  await popup.waitForSelector('#request-form:not([hidden])', { timeout: 15000 });
+  await popup.waitForTimeout(500);
+  check('Express: off by default, the toolbar click shows the form and sends nothing', !(await options.isChecked('#express-enabled')) && expressCount() === start, `posts=${expressCount() - start}`);
+  check('Express: off by default, no reasons are listed', !(await visible(popup, '#express-reasons-box')));
+  await popup.close();
+  await express.close();
+  await options.bringToFront();
+  await options.click('.x-setting');
+  check('Express: the Options switch turns it on', await until(options, () => /is on/.test(document.getElementById('notice').textContent), 5000) && await options.isChecked('#express-enabled'));
+  check('Options with Express on: fits 1366x650', await fits(options, 650), await scrollHeight(options));
+  await shot(options, 'options-express-on');
+
+  // Sends with no click. The popup shows sending, closing it cancels nothing, and reopening never sends again.
+  api.behavior = 'hold'; start = expressCount();
+  const okPage = await product(expressUrl('ok'));
+  popup = await popupFor(okPage);
+  check('Express: sends by itself and shows sending', await titleIs(popup, 'Sending your request', 8000) && /You can close this popup/.test(await textOf(popup, 'result-message')), await textOf(popup, 'result-title'));
+  check('Express sending: one create', expressCount() === start + 1, `posts=${expressCount() - start}`);
+  check('Express sending: shows the item and the details', /Test bearing, sending/.test(await textOf(popup, 'result-item')) && /\$30\.00 USD/.test(await textOf(popup, 'result-facts')) && /Test Team One/.test(await textOf(popup, 'result-facts')) && /Test Student A/.test(await textOf(popup, 'result-facts')));
+  check('Express sending: no form underneath', !(await visible(popup, '#request-form')));
+  check('Express sending: fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  await shot(popup, 'express-sending');
+  const okPost = api.posts.at(-1);
+  check('Express: sends NORMAL, quantity 1, with the defaults, in the same shape as the form', okPost.draft.status === 'NORMAL Request' && okPost.draft.quantity === 1 && okPost.draft.team === 'team-1' && okPost.draft.recipient === PERSON && okPost.draft.price === 30 && okPost.draft.currencyConfirmed === true && JSON.stringify(Object.keys(okPost.draft).sort()) === '["currencyConfirmed","description","price","quantity","recipient","sku","status","team","url"]', JSON.stringify(okPost.draft));
+  await popup.close();
+  for (let i = 0; i < 3; i++) { const again = await popupFor(okPage); await sleep(150); await again.close(); }
+  await sleep(300);
+  check('Express: closing and reopening while it sends sends nothing more', expressCount() === start + 1, `posts=${expressCount() - start}`);
+  const piled = await Promise.all([popupFor(okPage), popupFor(okPage), popupFor(okPage)]);
+  await sleep(300);
+  check('Express: three popups at once while it sends send nothing more', expressCount() === start + 1, `posts=${expressCount() - start}`);
+  await Promise.all(piled.map(p => p.close()));
+  api.behavior = 'ok'; api.release?.();
+  await sleep(500);
+  popup = await popupFor(okPage);
+  check('Express: the send finished with the popup closed, and shows success', await titleIs(popup, 'Request sent', 10000), await textOf(popup, 'result-title'));
+  check('Express success: links to Notion, and explains there is no undo', (await popup.getAttribute('#notion-link', 'href')) === PAGE && /Open in Notion to review/.test(await textOf(popup, 'notion-link')) && /no undo/.test(await textOf(popup, 'express-help')));
+  check('Express success: offers New request and turning it off', await visible(popup, '#new-request') && await visible(popup, '#express-off'));
+  check('Express success: says it is created', /Created/.test(await textOf(popup, 'result-pill')));
+  check('Express success: fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  await shot(popup, 'express-success');
+  popup = await reopen(popup, okPage);
+  await sleep(400);
+  check('Express: a page already sent shows its receipt, with no second send', (await textOf(popup, 'result-title')) === 'Request sent' && expressCount() === start + 1, `posts=${expressCount() - start}`);
+  check('Express: the ID never changed', new Set(api.posts.slice(start).map(p => p.submissionId)).size === 1);
+  await popup.close();
+
+  // Rapid reopen from the very first click: all of them share one draft and one ID.
+  start = expressCount();
+  const rapidPage = await product(expressUrl('rapid'));
+  const rapid = await Promise.all([popupFor(rapidPage), popupFor(rapidPage), popupFor(rapidPage), popupFor(rapidPage)]);
+  await sleep(1000);
+  check('Express: four popups at once on a new page send one request', expressCount() === start + 1, `posts=${expressCount() - start}`);
+  await Promise.all(rapid.map(p => p.close()));
+  await rapidPage.close();
+
+  // New request is a deliberate choice of the form.
+  start = expressCount();
+  const newsPage = await product(expressUrl('news'));
+  popup = await popupFor(newsPage);
+  await titleIs(popup, 'Request sent', 10000);
+  await popup.click('#new-request');
+  await popup.waitForSelector('#request-form:not([hidden])', { timeout: 15000 });
+  await sleep(300);
+  check('Express: New request shows the form and sends nothing', expressCount() === start + 1 && !(await visible(popup, '#express-reasons-box')), `posts=${expressCount() - start}`);
+  popup = await reopen(popup, newsPage);
+  await popup.waitForSelector('#request-form:not([hidden])');
+  await sleep(300);
+  check('Express: reopening after New request still waits for a click', expressCount() === start + 1 && !(await visible(popup, '#result')), `posts=${expressCount() - start}`);
+  await popup.close();
+  await newsPage.close();
+
+  // Uncertain and no answer: never resent by reopening, and only by a new, checked click.
+  start = expressCount();
+  api.behavior = 'uncertain';
+  const uncertainPage = await product(expressUrl('uncertain'));
+  popup = await popupFor(uncertainPage);
+  check('Express uncertain: says so', await titleIs(popup, 'Not sure it was created', 10000) && /won.t be resent/.test(await textOf(popup, 'result-message')), await textOf(popup, 'result-title'));
+  check('Express uncertain: retry waits for the check, and the database link shows', await popup.isDisabled('#retry') && await visible(popup, '#database-link'));
+  check('Express uncertain: fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  await shot(popup, 'express-uncertain');
+  api.behavior = 'ok';
+  for (let i = 0; i < 3; i++) { popup = await reopen(popup, uncertainPage); await sleep(300); }
+  check('Express uncertain: reopening three times never resends', expressCount() === start + 1 && (await textOf(popup, 'result-title')) === 'Not sure it was created', `posts=${expressCount() - start}`);
+  const uncertainFirst = api.posts.at(-1).submissionId;
+  await popup.check('#checked-notion');
+  await popup.click('#retry');
+  await popup.waitForSelector('#request-form:not([hidden])');
+  await sleep(300);
+  check('Express uncertain: confirming returns to the form without sending', expressCount() === start + 1, `posts=${expressCount() - start}`);
+  popup = await reopen(popup, uncertainPage);
+  await popup.waitForSelector('#request-form:not([hidden])');
+  await sleep(300);
+  check('Express uncertain: reopening that form still doesn\'t send', expressCount() === start + 1 && !(await visible(popup, '#result')), `posts=${expressCount() - start}`);
+  await popup.click('#submit');
+  await titleIs(popup, 'Request created');
+  check('Express uncertain: the student\'s own click uses a new ID', expressCount() === start + 2 && api.posts.at(-1).submissionId !== uncertainFirst);
+  await popup.close();
+  await uncertainPage.close();
+
+  // No answer: only the site's record decides, read back without resending.
+  start = expressCount();
+  api.behavior = 'gateway';
+  const lostPage = await product(expressUrl('noanswer'));
+  popup = await popupFor(lostPage);
+  check('Express no answer, no record: says nothing was created', await titleIs(popup, 'Request was not created', 10000) && /no record/.test(await textOf(popup, 'result-message')), await textOf(popup, 'result-title'));
+  const lostSent = api.posts.at(-1).submissionId;
+  api.behavior = 'ok';
+  popup = await reopen(popup, lostPage);
+  await sleep(600);
+  check('Express no answer, no record: reopening only reads, and never resends', expressCount() === start + 1 && api.gets.includes(lostSent), `posts=${expressCount() - start}`);
+  await popup.click('#retry');
+  await popup.waitForSelector('#request-form:not([hidden])');
+  await sleep(300);
+  check('Express no answer, no record: Review and retry shows the form without sending', expressCount() === start + 1, `posts=${expressCount() - start}`);
+  await popup.close();
+  await lostPage.close();
+  start = expressCount();
+  api.behavior = 'lost';
+  const lostAnswerPage = await product(expressUrl('lostanswer'));
+  popup = await popupFor(lostAnswerPage);
+  check('Express answer lost: the recorded result is read back as sent', await titleIs(popup, 'Request sent', 10000), await textOf(popup, 'result-title'));
+  check('Express answer lost: nothing was resent', expressCount() === start + 1, `posts=${expressCount() - start}`);
+  api.behavior = 'ok';
+  await popup.close();
+  await lostAnswerPage.close();
+
+  // A refusal returns to the form with the error.
+  start = expressCount();
+  api.behavior = 'failed';
+  const refusedPage = await product(expressUrl('refused'));
+  popup = await popupFor(refusedPage);
+  check('Express refused: returns to the form with the error', await until(popup, () => !document.getElementById('request-form').hidden && /refused/.test(document.getElementById('express-reasons').textContent), 10000), await textOf(popup, 'result-title'));
+  check('Express refused: fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  api.behavior = 'ok';
+  const refusedId = api.posts.at(-1).submissionId;
+  popup = await reopen(popup, refusedPage);
+  await popup.waitForSelector('#request-form:not([hidden])');
+  await sleep(300);
+  check('Express refused: reopening doesn\'t send again', expressCount() === start + 1 && /refused/.test(await reasons(popup)), `posts=${expressCount() - start}`);
+  await popup.click('#submit');
+  await titleIs(popup, 'Request created');
+  check('Express refused: the student\'s click uses a new ID', api.posts.at(-1).submissionId !== refusedId);
+  await popup.close();
+  await refusedPage.close();
+
+  // Every reason falls back to the form, says why, and sends nothing. These pages stay open for the light pass.
+  const fallback = async (name, arrange, expected, invalid) => {
+    start = expressCount();
+    await arrange?.();
+    const target = await product(expressUrl(name));
+    const form = await popupFor(target);
+    const shown = await form.waitForSelector('#request-form:not([hidden])', { timeout: 15000 }).then(() => true).catch(() => false);
+    await until(form, () => !document.getElementById('express-reasons-box').hidden, 5000);
+    await sleep(200);
+    const text = await reasons(form);
+    check(`Express fallback, ${name}: the form lists the reason`, shown && expected.test(text) && /Not sent yet/.test(await textOf(form, 'express-reasons-box')), text);
+    check(`Express fallback, ${name}: nothing was sent`, expressCount() === start, `posts=${expressCount() - start}`);
+    for (const id of invalid) check(`Express fallback, ${name}: ${id} is marked`, (await form.getAttribute(`#${id}`, 'aria-invalid')) === 'true');
+    check(`Express fallback, ${name}: fits 600px`, await fits(form, 600), await scrollHeight(form));
+    await shot(form, `express-review-${name}`);
+    return { target, form };
+  };
+  const views = {};
+  views.price = await fallback('price', null, /No price was found/, ['price']);
+  await views.price.form.close();
+  views.variant = await fallback('variant', null, /Options aren.t selected/, ['description', 'price']);
+  check('Express fallback, variant: the unknown price stays blank', (await views.variant.form.inputValue('#price')) === '');
+  await views.variant.form.close();
+  views.currency = await fallback('currency', null, /EUR 19\.50, not USD/, ['price']);
+  check('Express fallback, currency: the foreign number isn\'t left in the USD field, and the check shows', (await views.currency.form.inputValue('#price')) === '' && await visible(views.currency.form, '#currency-row'));
+  await views.currency.form.close();
+  api.repeats = [{ memberName: 'Test Student B', createdMs: Date.UTC(2026, 10, 7, 20, 2), pageUrl: 'https://app.notion.com/p/earlier-request', state: 'created' }];
+  views.repeat = await fallback('repeat', null, /Test Student B requested this on Nov 7.*You can still send yours/, []);
+  check('Express fallback, repeat: links to the earlier request', await views.repeat.form.evaluate(() => document.querySelector('#express-reasons a')?.getAttribute('href')) === 'https://app.notion.com/p/earlier-request');
+  check('Express fallback, repeat: the warning isn\'t shown twice', !(await visible(views.repeat.form, '#repeat-warning')));
+  await views.repeat.form.click('#submit');
+  await titleIs(views.repeat.form, 'Request created');
+  check('Express fallback, repeat: one click still sends it', expressCount() === start + 1);
+  api.repeats = [];
+  await views.repeat.form.close();
+  api.checkFails = true;
+  views.check = await fallback('check', null, /check for recent requests could not run/, []);
+  api.checkFails = false;
+  await views.check.form.close();
+  const savedDefaults = await options.evaluate(() => chrome.storage.local.get(['defaultTeam', 'options']));
+  await options.evaluate(() => chrome.storage.local.remove('defaultTeam'));
+  views.defaults = await fallback('defaults', null, /No default team or Notion name/, ['team']);
+  check('Express fallback, defaults: links to Settings', /Settings/.test(await views.defaults.form.evaluate(() => document.querySelector('#express-reasons a')?.textContent ?? '')));
+  await views.defaults.form.close();
+  await options.evaluate(() => chrome.storage.local.remove('defaultTeam'));
+  api.repeats = [{ memberName: 'Test Student B', createdMs: Date.UTC(2026, 10, 7, 20, 2), pageUrl: 'https://app.notion.com/p/earlier-request', state: 'created' }, { memberName: 'Test Student C', createdMs: Date.UTC(2026, 10, 8, 14, 15), pageUrl: null, state: 'created' }];
+  views.all = await fallback('all', null, /No price was found[\s\S]*No default team[\s\S]*Test Student B/, ['price', 'team']);
+  check('Express fallback, every reason: the reasons scroll inside their box', await views.all.form.evaluate(() => { const box = document.getElementById('alerts'); return box.clientHeight <= 150; }));
+  await views.all.form.close();
+  api.repeats = [];
+  await options.evaluate(saved => chrome.storage.local.set(saved), savedDefaults);
+
+  // A student edits a fallback: it's theirs now, and even a full page doesn't send it by itself.
+  start = expressCount();
+  const editedPage = await product(expressUrl('edited'));
+  popup = await popupFor(editedPage);
+  await popup.waitForSelector('#request-form:not([hidden])');
+  await popup.fill('#price', '12.50');
+  await popup.waitForTimeout(300);
+  popup = await reopen(popup, editedPage);
+  await popup.waitForSelector('#request-form:not([hidden])');
+  await sleep(300);
+  check('Express: an edited draft is restored and not sent', (await popup.inputValue('#price')) === '12.5' && expressCount() === start, `posts=${expressCount() - start}`);
+  await popup.close();
+  await editedPage.close();
+
+  // Selecting the option and reopening is what the variant reason says to do, and it uses the same ID.
+  start = expressCount();
+  const variantId = await options.evaluate(url => chrome.storage.local.get(null).then(all => Object.values(all).find(v => v?.draft?.url === url)?.submissionId), expressUrl('variant'));
+  await views.variant.target.selectOption('select', '4');
+  await views.variant.target.bringToFront();
+  popup = await popupFor(views.variant.target);
+  check('Express: choosing the option and reopening sends it', await until(popup, () => !document.getElementById('result').hidden, 8000) && expressCount() === start + 1, `posts=${expressCount() - start}`);
+  check('Express: that send uses the draft\'s first ID, with the page\'s price', api.posts.at(-1).submissionId === variantId && api.posts.at(-1).draft.price === 12.5, JSON.stringify(api.posts.at(-1)));
+  await popup.close();
+
+  // Layout again in Light mode, every state, on team colors with a light primary.
+  api.statusBody = { settings: TEAM_B };
+  await relight();
+  await options.click('#theme-toggle');
+  await until(options, () => chrome.storage.local.get('theme').then(v => v.theme === 'light'), 3000);
+  check('Light: Options with Express on fits 1366x650', await fits(options, 650), await scrollHeight(options));
+  await shot(options, 'options-express-on-light');
+  for (const name of ['price', 'currency', 'check', 'defaults', 'all']) {
+    if (name === 'defaults' || name === 'all') await options.evaluate(() => chrome.storage.local.remove('defaultTeam'));
+    if (name === 'all') api.repeats = [{ memberName: 'Test Student B', createdMs: Date.UTC(2026, 10, 7, 20, 2), pageUrl: null, state: 'created' }];
+    if (name === 'check') api.checkFails = true;
+    const form = await popupFor(views[name].target);
+    const box = await until(form, () => !document.getElementById('request-form').hidden && !document.getElementById('express-reasons-box').hidden, 8000);
+    check(`Light: fallback ${name} fits 600px`, box && await fits(form, 600), await scrollHeight(form));
+    check(`Light: fallback ${name} is really light`, await form.evaluate(() => getComputedStyle(document.querySelector('.ui-card')).backgroundColor) === 'rgb(255, 255, 255)');
+    await shot(form, `express-review-${name}-light`);
+    await form.close();
+    api.checkFails = false; api.repeats = [];
+    if (name === 'defaults' || name === 'all') await options.evaluate(saved => chrome.storage.local.set(saved), savedDefaults);
+  }
+  popup = await popupFor(okPage);
+  check('Light: Express success fits 600px', await titleIs(popup, 'Request sent') && await fits(popup, 600), await scrollHeight(popup));
+  await shot(popup, 'express-success-light');
+  await popup.close();
+  api.behavior = 'hold';
+  const lightSending = await product(`${expressUrl('closed')}`);
+  popup = await popupFor(lightSending);
+  check('Light: Express sending fits 600px', await titleIs(popup, 'Sending your request', 8000) && await fits(popup, 600), await scrollHeight(popup));
+  await shot(popup, 'express-sending-light');
+  api.behavior = 'ok'; api.release?.();
+  await titleIs(popup, 'Request sent', 8000);
+  await popup.close();
+  await lightSending.close();
+  api.behavior = 'uncertain';
+  const lightUncertain = await product(expressUrl('lightuncertain'));
+  popup = await popupFor(lightUncertain);
+  check('Light: Express uncertain fits 600px', await titleIs(popup, 'Not sure it was created', 10000) && await fits(popup, 600), await scrollHeight(popup));
+  await shot(popup, 'express-uncertain-light');
+  await popup.close();
+  await lightUncertain.close();
+  api.behavior = 'ok';
+  await options.click('#theme-toggle');
+  await until(options, () => chrome.storage.local.get('theme').then(v => v.theme === 'dark'), 3000);
+  for (const view2 of Object.values(views)) await view2.target.close().catch(() => undefined);
+  await okPage.close();
+
+  // Turning it off puts the form back.
+  await options.bringToFront();
+  await options.click('.x-setting');
+  await until(options, () => /is off/.test(document.getElementById('notice').textContent), 5000);
+  start = expressCount();
+  const offPage = await product(expressUrl('price'));
+  popup = await popupFor(offPage);
+  await popup.waitForSelector('#request-form:not([hidden])');
+  await sleep(300);
+  check('Express off again: no reasons, nothing sent', !(await visible(popup, '#express-reasons-box')) && expressCount() === start);
+  await popup.close();
+  await offPage.close();
+  check('Fonts: no page ever asked anything but the extension for a font', fontRequests.length > 0 && fontRequests.every(url => url.startsWith('chrome-extension://')), fontRequests.filter(url => !url.startsWith('chrome-extension://')).join());
+  check('Fonts: no request went to a font host', !allRequests.some(url => /fonts\.(googleapis|gstatic)\.com|fontsource/.test(url)));
+  check('Extension pages made no remote requests of their own', extensionPageRemote.length === 0, extensionPageRemote.slice(0, 3).join());
+  options.once('dialog', dialog => dialog.accept());
+  await options.click('#unpair');
+  await options.waitForSelector('#pair-form:not([hidden])', { timeout: 5000 }).catch(() => {});
+  check('Express: Unpair turns the switch off', await options.isDisabled('#express-enabled') && !(await options.isChecked('#express-enabled')) && !(await options.evaluate(() => chrome.storage.local.get('expressEnabled'))).expressEnabled);
+
   const finalStore = await options.evaluate(() => chrome.storage.local.get(null));
   check('No key is left anywhere in storage', !JSON.stringify(finalStore).includes(DEVICE_KEY) && !JSON.stringify(finalStore).includes(SECOND_KEY));
   check('No page errors, CSP errors or illegal invocations', problems.length === 0, problems.slice(0, 4).join(' | '));
+  check('The built CSP limits fonts to the extension', /font-src 'self'/.test(productionManifest.content_security_policy.extension_pages));
 } catch (error) {
   check('Run completed without crashing', false, String(error.stack || error.message).slice(0, 800));
 } finally {

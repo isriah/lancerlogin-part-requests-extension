@@ -46,7 +46,7 @@ describe('pairing screen',()=>{
   });
   it('an expired device shows the form with its site filled in, and says drafts are kept',async()=>{
     view={pairing:'expired',origin:SITE,deviceLabel:'Shop laptop',defaultTeam:''};await open();
-    expect(input('pair-form').hidden).toBe(false);expect(input('site-address').value).toBe(SITE);expect(input('device-label').value).toBe('Shop laptop');expect(text('pairing-state')).toBe('PAIR AGAIN');
+    expect(input('pair-form').hidden).toBe(false);expect(input('site-address').value).toBe(SITE);expect(input('device-label').value).toBe('Shop laptop');expect(text('pairing-state')).toBe('Pair again');
     expect(text('notice')).toContain('drafts are kept');
   });
   const unpairWith=(data:object)=>send.mockImplementation(async(m:Message)=>({ok:true,data:m.type==='unpair'?(view={...unpaired(),...data} as SettingsView):view}));
@@ -54,14 +54,14 @@ describe('pairing screen',()=>{
     view=paired();await open();expect(text('paired-card')).toContain('frees one of your 5 device slots');expect(text('paired-card')).toContain('an Admin may need to remove');
     const confirm=vi.fn(()=>false);vi.stubGlobal('confirm',confirm);document.getElementById('unpair')!.click();await new Promise(r=>setTimeout(r));expect(send.mock.calls.some(([m])=>m.type==='unpair')).toBe(false);expect(confirm.mock.calls[0]).toEqual([expect.stringContaining('frees one of your 5 device slots')]);
     unpairWith({revokedOnSite:true});
-    vi.stubGlobal('confirm',vi.fn(()=>true));document.getElementById('unpair')!.click();await vi.waitFor(()=>expect(input('pair-form').hidden).toBe(false));expect(text('pairing-state')).toBe('NOT PAIRED');
+    vi.stubGlobal('confirm',vi.fn(()=>true));document.getElementById('unpair')!.click();await vi.waitFor(()=>expect(input('pair-form').hidden).toBe(false));expect(text('pairing-state')).toBe('Not paired');
     expect(text('notice')).toContain('removed from your team');expect(text('notice')).toContain('frees one');expect(text('notice')).not.toContain('Admin');
     expect(input('unpair').disabled).toBe(false);
   });
   it('unpair says an Admin may need to remove the device when the site did not confirm it',async()=>{
     view=paired();await open();unpairWith({revokedOnSite:false});
     vi.stubGlobal('confirm',vi.fn(()=>true));document.getElementById('unpair')!.click();await vi.waitFor(()=>expect(input('pair-form').hidden).toBe(false));
-    expect(text('notice')).toContain('Unpaired on this computer');expect(text('notice')).toContain('an Admin may need to remove it');expect(text('pairing-state')).toBe('NOT PAIRED');
+    expect(text('notice')).toContain('Unpaired on this computer');expect(text('notice')).toContain('an Admin may need to remove it');expect(text('pairing-state')).toBe('Not paired');
   });
   it('shows the update notice with its link, without blocking anything, only when below the minimum',async()=>{
     view=paired();view.options={...view.options!,minimumExtensionVersion:'10.0.0',updateUrl:'https://github.com/isriah/lancerlogin-part-requests-extension/releases'};await open();
@@ -82,4 +82,33 @@ describe('pairing screen',()=>{
     document.getElementById('defaults-form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
     await vi.waitFor(()=>expect(input('pair-form').hidden).toBe(false));expect(text('notice')).toContain('pair it again');
   });
+});
+describe('settings and team colors',()=>{
+  const brand={primary:'#0b3d91',secondary:'#f58220',organizationName:'Test <b>Team</b> A',checkedAt:Date.now()};
+  const toggle=()=>document.getElementById('theme-toggle')!;
+  beforeEach(()=>{localStorage.clear();document.documentElement.removeAttribute('style');document.documentElement.setAttribute('data-theme','dark');});
+  it('Express addition is off and disabled until paired',async()=>{await open();expect(input('express-enabled').checked).toBe(false);expect(input('express-enabled').disabled).toBe(true);expect(input('settings-unpaired').hidden).toBe(false);});
+  it('turning it on goes through the worker',async()=>{
+    view=paired();await open();expect(input('express-enabled').checked).toBe(false);expect(input('express-enabled').disabled).toBe(false);
+    send.mockImplementation(async(m:Message)=>({ok:true,data:m.type==='set-express'?(view={...view,expressEnabled:m.enabled}):view}));
+    input('express-enabled').click();await vi.waitFor(()=>expect(send.mock.calls.some(([m])=>m.type==='set-express'&&m.enabled===true)).toBe(true));await vi.waitFor(()=>expect(text('notice')).toContain('Express addition is on'));expect(input('express-enabled').checked).toBe(true);
+  });
+  it('shows the name as plain text and the colors through custom properties only',async()=>{
+    view={...paired(),brand};await open();
+    expect(text('paired-team')).toBe('Test <b>Team</b> A');expect(text('brand-name')).toBe('Test <b>Team</b> A');expect(document.querySelector('#paired-team b,#brand-name b')).toBeNull();
+    expect(document.documentElement.style.getPropertyValue('--primary')).toBe('#0b3d91');
+    expect(text('swatch-primary')).toBe('Primary #0B3D91');expect(input('swatch-primary').style.getPropertyValue('--swatch-background')).toBe('#0b3d91');expect(input('swatch-primary').style.background).toBe('');
+    expect(text('brand-checked')).toContain('Checked today at');expect(input('default-colors-notice').hidden).toBe(true);
+  });
+  it('uses the defaults and says so when unpaired, clearing any saved team',async()=>{
+    localStorage.setItem('part-requests-appearance',JSON.stringify({theme:'dark',name:'Old',tokens:{dark:{'--primary':'#123456'}}}));document.documentElement.style.setProperty('--primary','#123456');await open();
+    expect(document.documentElement.style.getPropertyValue('--primary')).toBe('');expect(text('brand-name')).toBe('LancerLogin');expect(input('default-colors-notice').hidden).toBe(false);expect(JSON.parse(localStorage.getItem('part-requests-appearance')!)).toEqual({theme:'dark'});
+  });
+  it('the switch changes the theme at once, tells the worker and keeps a synchronous copy',async()=>{
+    await open();expect(toggle().getAttribute('aria-checked')).toBe('false');
+    send.mockImplementation(async(m:Message)=>({ok:true,data:m.type==='set-theme'?(view={...view,theme:m.theme}):view}));
+    toggle().click();expect(document.documentElement.getAttribute('data-theme')).toBe('light');expect(toggle().getAttribute('aria-checked')).toBe('true');expect(JSON.parse(localStorage.getItem('part-requests-appearance')!).theme).toBe('light');
+    await vi.waitFor(()=>expect(send.mock.calls.some(([m])=>m.type==='set-theme'&&m.theme==='light')).toBe(true));
+  });
+  it('a pair-again device keeps its site\'s address visible through the host only when paired',async()=>{view=paired();await open();expect(text('paired-origin')).toBe('team-site.example.test');});
 });

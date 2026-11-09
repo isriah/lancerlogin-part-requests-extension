@@ -16,7 +16,7 @@ beforeEach(async()=>{
   vi.stubGlobal('chrome',{runtime:{id:'extension',sendMessage:send,openOptionsPage:vi.fn()},tabs:{query:vi.fn(async()=>[{id:42}])}});
 });
 afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();vi.restoreAllMocks();});
-async function open(){await import('../src/popup');await vi.waitFor(()=>expect(input('request-form').hidden).toBe(false));}
+async function open(){await import('../src/popup');await vi.waitFor(()=>expect(input('loading').hidden).toBe(true));}
 describe('popup review and recovery',()=>{
   it('renders safe text, computes totals and derives vendor from edited URL',async()=>{
     r.draft.description='<img src=x onerror=alert(1)>';r.capture.issues=['<script>bad</script>'];await open();
@@ -105,7 +105,7 @@ describe('pairing in the popup',()=>{
   });
   it('fills teams and people from the plugin\'s lists',async()=>{
     await open();await vi.waitFor(()=>expect(send.mock.calls.some(([m])=>m.type==='refresh-options')).toBe(true));
-    expect([...input('team').querySelectorAll('option')].map(o=>o.textContent)).toEqual(['Choose team','Robotics']);
+    expect([...input('team').querySelectorAll('option')].map(o=>o.textContent)).toEqual(['Choose a team','Robotics']);
     expect(input('recipient').value).toBe('person1');
   });
 });
@@ -127,5 +127,65 @@ describe('repeat warning',()=>{
     input('sku').value='NEW';input('sku').dispatchEvent(new Event('change',{bubbles:true}));
     await vi.waitFor(()=>expect(send.mock.calls.filter(([m])=>m.type==='check-repeats')).toHaveLength(2));
     expect(send.mock.calls.filter(([m])=>m.type==='check-repeats')[1][0].sku).toBe('NEW');
+  });
+});
+describe('Express addition in the popup',()=>{
+  const facts={description:'Test socket head screws',store:'McMaster',quantity:1,price:21.4,team:'Test Team One',recipient:'Test Student A'};
+  const expressed=(state:Submission['state'],extra={})=>({id:r.submissionId,draftKey:r.key,state,updatedAt:Date.now(),express:true,facts,...extra}) as Submission;
+  const shown=(id:string)=>!input(id).hidden;
+  it('asks for auto only when the toolbar opened it, and shows sending without the form',async()=>{
+    view.expressEnabled=true;result=expressed('pending');await open();
+    expect(send.mock.calls.find(([m])=>m.type==='capture')![0]).toMatchObject({auto:true});
+    expect(text('result-title')).toBe('Sending your request');expect(text('result-message')).toContain('You can close this popup');expect(text('result-facts')).toContain('1 pack');expect(text('result-facts')).toContain('$21.40 USD');
+    expect(shown('result-spin')).toBe(true);expect(shown('request-form')).toBe(false);expect(shown('new-request')).toBe(false);
+  });
+  it('shows success with the Notion link, no undo, and the way to turn it off',async()=>{
+    result=expressed('success',{pageUrl:'https://www.notion.so/new'});await open();
+    expect(text('result-title')).toBe('Request sent');expect(text('result-pill')).toContain('Created');expect(text('notion-link')).toContain('Open in Notion to review');expect((document.getElementById('notion-link') as HTMLAnchorElement).href).toBe('https://www.notion.so/new');
+    expect(text('express-help')).toContain('no undo');expect(shown('express-off-row')).toBe(true);expect(shown('new-request')).toBe(true);
+  });
+  it('shows uncertain with a locked retry and no promise of a resend',async()=>{
+    result=expressed('uncertain',{recorded:true});view.options={...view.options!,databaseLink:'https://www.notion.so/11111111222243338444555555555555'};await open();
+    expect(text('result-title')).toBe('Not sure it was created');expect(text('result-message')).toContain('won\'t be resent');expect(input('retry').disabled).toBe(true);expect(shown('database-link')).toBe(true);
+    expect(send.mock.calls.filter(([m])=>m.type==='submit')).toHaveLength(0);
+  });
+  it('a form send keeps the older wording',async()=>{
+    result={...expressed('success',{pageUrl:'https://www.notion.so/new'}),express:false};await open();expect(text('result-title')).toBe('Request created');expect(shown('express-help')).toBe(false);
+  });
+  it('lists the reasons above the form, as text, with a Notion-only link, and marks the fields',async()=>{
+    view.expressEnabled=true;view.defaultTeam='';r.draft.price=null;r.draft.team='';
+    r.express={state:'fallback',reasons:[
+      {code:'price',text:'No price was found on this page. Enter the USD price.'},
+      {code:'defaults',text:'No default team or Notion name is saved. Choose them here, or in Settings.'},
+      {code:'repeat',text:'x',repeats:[{memberName:'<b>Test</b> Student B',createdMs:Date.UTC(2026,10,7,20),pageUrl:'https://www.notion.so/earlier',state:'created'},{memberName:'C',createdMs:1,pageUrl:'https://evil.example.test/',state:'created'}]},
+    ]};
+    await open();
+    expect(shown('express-reasons-box')).toBe(true);expect(text('express-reasons-box')).toContain('Not sent yet');expect(text('express-reasons')).toContain('No price was found');expect(text('express-reasons')).toContain('You can still send yours');expect(text('express-reasons')).toContain('<b>Test</b> Student B requested this on');
+    expect(document.querySelector('#express-reasons b')).toBeNull();
+    expect([...document.querySelectorAll<HTMLAnchorElement>('#express-reasons a')].map(a=>a.getAttribute('href')).filter(h=>h!=='#')).toEqual(['https://www.notion.so/earlier']);
+    expect(input('price').getAttribute('aria-invalid')).toBe('true');expect(input('team').getAttribute('aria-invalid')).toBe('true');expect(shown('repeat-warning')).toBe(false);
+    expect(send.mock.calls.filter(([m])=>m.type==='check-repeats')).toHaveLength(0);
+    change('price','5');expect(input('price').hasAttribute('aria-invalid')).toBe(false);
+  });
+  it('doesn\'t show saved reasons once the switch is off',async()=>{
+    r.express={state:'fallback',reasons:[{code:'price',text:'No price was found on this page.'}]};await open();expect(shown('express-reasons-box')).toBe(false);
+  });
+  it('New request reads the page without allowing a send',async()=>{
+    result=expressed('success',{pageUrl:'https://www.notion.so/new'});await open();result=undefined;
+    (document.getElementById('new-request') as HTMLButtonElement).click();await vi.waitFor(()=>expect(send.mock.calls.filter(([m])=>m.type==='capture')).toHaveLength(2));
+    expect(send.mock.calls.filter(([m])=>m.type==='capture')[1][0]).toMatchObject({auto:false});
+  });
+  it('moves from sending to the result on its own',async()=>{
+    view.expressEnabled=true;result=expressed('pending');await open();
+    const original=send.getMockImplementation()!;send.mockImplementation(async(m:Message)=>m.type==='submission'?{ok:true,data:expressed('success',{pageUrl:'https://www.notion.so/new'})}:original(m));
+    await vi.advanceTimersByTimeAsync(1600);await vi.waitFor(()=>expect(text('result-title')).toBe('Request sent'));
+    expect(send.mock.calls.filter(([m])=>m.type==='submit')).toHaveLength(0);
+  });
+  it('returns to the form when the worker reports the send was refused, sending nothing itself',async()=>{
+    view.expressEnabled=true;result=expressed('pending');await open();
+    const original=send.getMockImplementation()!;result=undefined;r.express={state:'attempted',reasons:[{code:'send-failed',text:'Notion refused this request.'}]};
+    send.mockImplementation(async(m:Message)=>m.type==='submission'?{ok:true,data:expressed('failed',{recorded:true})}:original(m));
+    await vi.advanceTimersByTimeAsync(1600);await vi.waitFor(()=>expect(shown('request-form')).toBe(true));
+    expect(text('express-reasons')).toContain('Notion refused');expect(send.mock.calls.filter(([m])=>m.type==='submit')).toHaveLength(0);
   });
 });
