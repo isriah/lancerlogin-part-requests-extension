@@ -307,7 +307,7 @@ try {
   const outdated = watch(await context.newPage());
   await outdated.goto(optionsUrl);
   await outdated.setViewportSize({ width: 1366, height: 650 });
-  check('Update notice: Options shows it below the minimum, comparing numbers', await until(outdated, () => !document.getElementById('update-notice').hidden, 10000) && /0\.3\.0/.test(await textOf(outdated, 'update-text')) && /0\.10\.0/.test(await textOf(outdated, 'update-text')));
+  check('Update notice: Options shows it below the minimum, comparing numbers', await until(outdated, () => !document.getElementById('update-notice').hidden, 10000) && (await textOf(outdated, 'update-text')).includes(productionManifest.version) && /0\.10\.0/.test(await textOf(outdated, 'update-text')));
   check('Update notice: Options links to the releases page', (await outdated.getAttribute('#update-link', 'href')) === UPDATE_URL && (await outdated.getAttribute('#update-link', 'target')) === '_blank');
   check('Update notice: Options still works', await visible(outdated, '#paired-card') && !(await outdated.isDisabled('#unpair')));
   check('Options with the update notice fits 1366x650', await fits(outdated, 650), await scrollHeight(outdated));
@@ -400,7 +400,7 @@ try {
   check('Vendor derived from URL', (await popup.textContent('#vendor')).trim() === 'REV');
   check('Popup paired: no pairing prompt', !(await visible(popup, '#setup')));
   check('Popup paired: uses the team colors and name, from the worker', (await cssVar(popup, '--primary')) === '#0b3d91' && (await textOf(popup, 'brand-name')) === TEAM_A.organizationName, await cssVar(popup, '--primary'));
-  check('Popup paired: shows no Carts button yet', !(await popup.evaluate(() => [...document.querySelectorAll('button,a')].some(n => /carts/i.test(n.textContent)))));
+  check('Popup paired: shows no Carts button while Carts is off', !(await popup.isVisible('#carts')));
   check('Create request sits at the top of the form', await popup.evaluate(() => document.getElementById('submit').getBoundingClientRect().top < document.getElementById('description').getBoundingClientRect().top));
   await shot(popup, 'popup-form');
 

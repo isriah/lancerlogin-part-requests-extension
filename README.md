@@ -61,10 +61,10 @@ NORMAL and RUSH start ticked. SLOW and Incomplete start unticked, and anything m
 
 ## Verification status
 
-- Unit tests (`npm test`): 412 pass, including all 20 adapter fixtures, the device API's results, version comparison, Unpair's outcomes, worker persistence, Express addition's conditions and sends, team color validation and contrast, and popup and Options interactions.
-- Browser end-to-end run (`npm run e2e`): 276 checks against the built extension with a simulated plugin API and Chrome's real permission prompt. It cannot prove the toolbar-click permission grant.
+- Unit tests (`npm test`): 529 pass, including all 20 adapter fixtures, the device API's results, version comparison, Unpair's outcomes, worker persistence, Express addition's conditions and sends, team color validation and contrast, and popup and Options interactions.
+- Browser end-to-end run (`npm run e2e`): 278 checks against the built extension with a simulated plugin API and Chrome's real permission prompt. It cannot prove the toolbar-click permission grant.
 - A pass against the real plugin in a local preview, with Notion stubbed, has been run on this version, including team colors from Core's real status route; see [Development](docs/DEVELOPMENT.md#tests). Version 0.3.0 has not been run against real Notion, real Discord, real Cloudflare or Google Chrome itself, and Express addition has not been tried from a real toolbar click.
-- Carts: `npm run e2e:carts` drives the built extension against synthetic stores and a simulated plugin, and `npm run live:carts` adds one real item per store in a throwaway profile. REV, Pololu and WCP passed live. McMaster stopped at its login wall, so it is unproven. Version 0.4.0's Carts has not run against a signed-in store account or in Google Chrome itself. See [Carts](docs/CARTS.md#evidence).
+- Carts: `npm run e2e:carts` (119 checks) drives the built extension against synthetic stores and a simulated plugin, and `npm run live:carts` adds one real item per store in a throwaway profile. REV, Pololu and WCP passed live. McMaster stopped at its login wall, so it is unproven. A pass against the real plugin on real Core in a local preview, with Notion stubbed and stores synthetic, covered `/orders`, marks and the Admin's switch. Version 0.4.0's Carts has not run against real Notion, a signed-in store account or Google Chrome itself. See [Carts](docs/CARTS.md#evidence).
 - Vendor reader checks: see the [vendor matrix](docs/VENDORS.md).
 
 ## Develop

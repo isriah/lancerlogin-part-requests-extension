@@ -99,7 +99,9 @@ Tested 2026-11-09, live, in throwaway Edge profiles that were deleted afterwards
 | WCP | `/products/<handle>.js`, `/cart.js`, `POST /cart/add.js`, `/cart.js` | Real add confirmed, quantity 2, with a saved `?variant=` and a confirmed SKU. Retry added nothing. |
 | McMaster | Order page paste, written from the research | **Unproven.** A fresh profile gets a login wall, and it stopped there. Nothing was typed or added. |
 
-Short stock, a store's refusal, walls and the checkout rule are proven only on synthetic pages, so they haven't been seen from a real store.
+Short stock, a store's refusal, walls other than McMaster's and the checkout rule are proven only on synthetic pages, so they haven't been seen from a real store.
+
+The API is checked separately: the built extension against the `carts-backend` plugin on real Core and D1 in a local preview, with Notion stubbed and stores synthetic. Pairing, the real `/orders` list including a real `202`, `skippedRows`, another device's mark, this device's marks, the Admin's switch and its `403` all passed. Core's Pages proxy was stood in for there, because the preview had no port for it.
 
 ### What the owner needs to check in a signed-in browser
 
