@@ -4,6 +4,7 @@
   <header class="masthead"><div class="brand-mark" aria-hidden="true">↗</div><div><p class="eyebrow">ROBOTICS / PROCUREMENT</p><h1>Pair this browser with your team</h1></div><span class="badge">STUDENT DEVICE</span></header>
   <main>
     <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <p id="update-notice" class="update-notice" role="status" hidden><strong>Update available:</strong> <span id="update-text"></span> <a id="update-link" target="_blank" rel="noopener noreferrer" hidden>Get the update ↗</a></p>
     <div class="columns">
     <section class="card"><div class="section-heading"><h2><span class="step">01</span> Pair this device</h2><span id="pairing-state" class="badge">NOT PAIRED</span></div>
       <form id="pair-form">
@@ -16,7 +17,7 @@
       <div id="paired-card" hidden>
         <dl class="paired-facts"><dt>Paired as</dt><dd id="paired-member"></dd><dt>Site</dt><dd id="paired-origin"></dd><dt>Device</dt><dd id="paired-label"></dd></dl>
         <div class="actions"><button id="unpair" type="button" class="secondary">Unpair this device</button></div>
-        <p class="field-help">Unpairing only forgets the key on this computer. It does not end the key on the site, and the device still counts toward your limit of 5 until an Admin removes it. Drafts here are kept.</p>
+        <p class="field-help">Unpairing removes this device from your team's site, which frees one of your 5 device slots, then forgets the key on this computer. If the site can't be reached, it still unpairs here, and an Admin may need to remove the device. Drafts here are kept.</p>
       </div>
     </section>
     <div class="column-stack">

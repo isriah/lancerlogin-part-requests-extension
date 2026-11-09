@@ -177,9 +177,13 @@ async function handle(message: Message): Promise<unknown> {
     }
     case 'unpair': {
       const site = await get<Site>('site');
+      // Tell the site first, while the key and the permission are still here. Any failure still unpairs this computer.
+      let revokedOnSite = false;
+      try { revokedOnSite = await (await paired()).client.revokeSelf(); }
+      catch { /* Offline, expired or no permission: Options says an Admin may need to remove the device. */ }
       await chrome.storage.local.remove(['deviceKey', 'site', 'options', 'defaultTeam']);
       if (site) await chrome.permissions.remove({ origins: [originPattern(site.origin)] }).catch(() => undefined);
-      return view();
+      return { ...await view(), revokedOnSite };
     }
     case 'refresh-options': return refreshOptions();
     case 'save-defaults': {

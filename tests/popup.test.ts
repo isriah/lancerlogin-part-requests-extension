@@ -44,6 +44,43 @@ describe('popup review and recovery',()=>{
     input('checked-notion').checked=true;input('checked-notion').dispatchEvent(new Event('change'));expect(input('retry').disabled).toBe(false);
   });
 });
+describe('the ordering database link after an uncertain result',()=>{
+  const DATABASE='https://www.notion.so/11111111222243338444555555555555';
+  const link=()=>document.getElementById('database-link') as HTMLAnchorElement;
+  const uncertain=()=>{result={id:r.submissionId,draftKey:r.key,state:'uncertain',recorded:true,updatedAt:Date.now()};};
+  it('offers it, with the site\'s Notion link, in a new tab',async()=>{
+    uncertain();view.options={...view.options!,databaseLink:DATABASE};await open();
+    expect(text('result-title')).toBe('Check Notion before retrying');expect(link().hidden).toBe(false);expect(text('database-link')).toContain('Check ordering database');
+    expect(link().href).toBe(DATABASE);expect(link().target).toBe('_blank');expect(link().rel).toContain('noopener');
+  });
+  it.each(['https://notion.so.evil.example.test/x','https://evilnotion.so/x','http://www.notion.so/x','javascript:alert(1)'])('never offers %s, even from saved lists',async url=>{
+    uncertain();view.options={...view.options!,databaseLink:url};await open();
+    expect(text('result-title')).toBe('Check Notion before retrying');expect(link().hidden).toBe(true);expect(link().hasAttribute('href')).toBe(false);
+  });
+  it('is absent from lists saved before the plugin sent it, and the flow still works',async()=>{
+    uncertain();await open();expect(link().hidden).toBe(true);expect(input('uncertain-check').hidden).toBe(false);
+  });
+  it('appears when a refresh brings the link to a result already showing',async()=>{
+    uncertain();let answer=view;send.mockImplementation(async(m:Message)=>({ok:true,data:m.type==='settings'||m.type==='refresh-options'?answer:m.type==='capture'?{record:structuredClone(r),submission:result}:true}));
+    const refreshed={...view,options:{...view.options!,databaseLink:DATABASE}};
+    const original=send.getMockImplementation()!;send.mockImplementation(async(m:Message)=>{if(m.type==='refresh-options')answer=refreshed;return original(m);});
+    await open();await vi.waitFor(()=>expect(link().hidden).toBe(false));expect(link().href).toBe(DATABASE);
+  });
+  it('is not offered on a plain failure',async()=>{
+    view.options={...view.options!,databaseLink:DATABASE};result={id:r.submissionId,draftKey:r.key,state:'failed',recorded:true,updatedAt:Date.now(),message:'Refused.'};await open();
+    expect(text('result-title')).toBe('Request was not created');expect(link().hidden).toBe(true);
+  });
+});
+describe('the update notice',()=>{
+  const manifest=(version:string)=>{(globalThis.chrome.runtime as unknown as {getManifest:()=>{version:string}}).getManifest=()=>({version});};
+  it('shows below the minimum, comparing numbers, and blocks nothing',async()=>{
+    manifest('0.9.0');view.options={...view.options!,minimumExtensionVersion:'0.10.0',updateUrl:'https://github.com/isriah/lancerlogin-part-requests-extension/releases'};await open();
+    expect(input('update-notice').hidden).toBe(false);expect((document.getElementById('update-link') as HTMLAnchorElement).href).toBe('https://github.com/isriah/lancerlogin-part-requests-extension/releases');
+    expect(input('submit').disabled).toBe(false);submit();await vi.waitFor(()=>expect(text('result-title')).toBe('Request created'));
+  });
+  it('stays hidden at or above the minimum',async()=>{manifest('0.10.0');view.options={...view.options!,minimumExtensionVersion:'0.9.0',updateUrl:'https://github.com/isriah/lancerlogin-part-requests-extension/releases'};await open();expect(input('update-notice').hidden).toBe(true);});
+  it('stays hidden with no minimum',async()=>{manifest('0.1.0');await open();expect(input('update-notice').hidden).toBe(true);});
+});
 describe('pairing in the popup',()=>{
   it('prompts when unpaired, keeps the captured draft and blocks sending',async()=>{
     view={pairing:'unpaired',defaultTeam:''};r.draft.team='';r.draft.recipient='';await open();

@@ -49,10 +49,31 @@ describe('pairing screen',()=>{
     expect(input('pair-form').hidden).toBe(false);expect(input('site-address').value).toBe(SITE);expect(input('device-label').value).toBe('Shop laptop');expect(text('pairing-state')).toBe('PAIR AGAIN');
     expect(text('notice')).toContain('drafts are kept');
   });
+  const unpairWith=(data:object)=>send.mockImplementation(async(m:Message)=>({ok:true,data:m.type==='unpair'?(view={...unpaired(),...data} as SettingsView):view}));
   it('unpair explains what it does, and does nothing if cancelled',async()=>{
-    view=paired();await open();expect(text('paired-card')).toContain('only forgets the key');
-    vi.stubGlobal('confirm',vi.fn(()=>false));document.getElementById('unpair')!.click();await new Promise(r=>setTimeout(r));expect(send.mock.calls.some(([m])=>m.type==='unpair')).toBe(false);
+    view=paired();await open();expect(text('paired-card')).toContain('frees one of your 5 device slots');expect(text('paired-card')).toContain('an Admin may need to remove');
+    const confirm=vi.fn(()=>false);vi.stubGlobal('confirm',confirm);document.getElementById('unpair')!.click();await new Promise(r=>setTimeout(r));expect(send.mock.calls.some(([m])=>m.type==='unpair')).toBe(false);expect(confirm.mock.calls[0]).toEqual([expect.stringContaining('frees one of your 5 device slots')]);
+    unpairWith({revokedOnSite:true});
     vi.stubGlobal('confirm',vi.fn(()=>true));document.getElementById('unpair')!.click();await vi.waitFor(()=>expect(input('pair-form').hidden).toBe(false));expect(text('pairing-state')).toBe('NOT PAIRED');
+    expect(text('notice')).toContain('removed from your team');expect(text('notice')).toContain('frees one');expect(text('notice')).not.toContain('Admin');
+    expect(input('unpair').disabled).toBe(false);
+  });
+  it('unpair says an Admin may need to remove the device when the site did not confirm it',async()=>{
+    view=paired();await open();unpairWith({revokedOnSite:false});
+    vi.stubGlobal('confirm',vi.fn(()=>true));document.getElementById('unpair')!.click();await vi.waitFor(()=>expect(input('pair-form').hidden).toBe(false));
+    expect(text('notice')).toContain('Unpaired on this computer');expect(text('notice')).toContain('an Admin may need to remove it');expect(text('pairing-state')).toBe('NOT PAIRED');
+  });
+  it('shows the update notice with its link, without blocking anything, only when below the minimum',async()=>{
+    view=paired();view.options={...view.options!,minimumExtensionVersion:'10.0.0',updateUrl:'https://github.com/isriah/lancerlogin-part-requests-extension/releases'};await open();
+    expect(input('update-notice').hidden).toBe(false);expect(text('update-text')).toContain('9.9.9');expect(text('update-text')).toContain('10.0.0');
+    const link=document.getElementById('update-link') as HTMLAnchorElement;expect(link.hidden).toBe(false);expect(link.href).toBe('https://github.com/isriah/lancerlogin-part-requests-extension/releases');expect(link.rel).toContain('noopener');expect(input('paired-card').hidden).toBe(false);
+  });
+  it('keeps the update notice hidden at or above the minimum, and with no minimum',async()=>{
+    view=paired();view.options={...view.options!,minimumExtensionVersion:'9.9.9',updateUrl:'https://github.com/isriah/lancerlogin-part-requests-extension/releases'};await open();expect(input('update-notice').hidden).toBe(true);
+  });
+  it('shows the update notice without a link when the link is not https',async()=>{
+    view=paired();view.options={...view.options!,minimumExtensionVersion:'10.0.0',updateUrl:'http://downloads.example.test/x'};await open();
+    expect(input('update-notice').hidden).toBe(false);expect(input('update-link').hidden).toBe(true);expect(document.getElementById('update-link')!.hasAttribute('href')).toBe(false);
   });
   it('a key refused while saving defaults turns into the pair-again form',async()=>{
     view=paired();await open();

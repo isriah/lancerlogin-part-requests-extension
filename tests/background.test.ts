@@ -187,11 +187,37 @@ describe('pairing and defaults',()=>{
     expect(await call({type:'refresh-options'})).toMatchObject({ok:false,code:'pair_again'});
     const settings=await call({type:'settings'});expect(settings.data.pairing).toBe('expired');expect(settings.data.options).toBeDefined();
   });
-  it('unpair forgets the key and the site\'s access, and keeps drafts and receipts',async()=>{
+  it('unpair tells the site first, then forgets the key and the site\'s access, and keeps drafts and receipts',async()=>{
     const r=record();values[`draft:${r.key}`]=r;values[`receipt:x`]={submissionId:'y'};
+    let keyDuringCall:unknown,removedDuringCall:unknown;
+    vi.stubGlobal('fetch',vi.fn(async()=>{keyDuringCall=values.deviceKey;removedDuringCall=chromeMock.permissions.remove.mock.calls.length;return response({revoked:true});}));
     const result=await call({type:'unpair'});
+    expect(fetchMock().mock.calls[0][0]).toBe(`${API}/devices/self/revoke`);expect(fetchMock().mock.calls[0][1].headers.Authorization).toBe(`Bearer ${DEVICE_KEY}`);
+    expect(keyDuringCall).toBe(DEVICE_KEY);expect(removedDuringCall).toBe(0);
+    expect(result.data.revokedOnSite).toBe(true);
     expect(result.data.pairing).toBe('unpaired');expect(values.deviceKey).toBeUndefined();expect(values.site).toBeUndefined();
     expect(values[`draft:${r.key}`]).toBeDefined();expect(values['receipt:x']).toBeDefined();
-    expect(chromeMock.permissions.remove).toHaveBeenCalledWith({origins:[`${SITE}/*`]});expect(fetch).not.toHaveBeenCalled();
+    expect(chromeMock.permissions.remove).toHaveBeenCalledWith({origins:[`${SITE}/*`]});expect(JSON.stringify(result)).not.toContain(DEVICE_KEY);
+  });
+  it.each<[string,Response|Error]>([
+    ['offline',new Error('offline')],['an expired key',response({code:'pair_again',error:'x'},401)],['the rate limit',response({code:'rate_limited',error:'x'},429)],
+    ['maintenance',response({code:'update_maintenance',error:'x'},503,{'Retry-After':'30'})],['a server error',response({error:'x'},500)],
+  ])('unpair still happens on this computer after %s, and says the site did not confirm it',async(_,reply)=>{
+    send(reply);
+    const result=await call({type:'unpair'});
+    expect(result.ok).toBe(true);expect(result.data.revokedOnSite).toBe(false);expect(result.data.pairing).toBe('unpaired');
+    expect(fetch).toHaveBeenCalledTimes(1);expect(values.deviceKey).toBeUndefined();expect(values.site).toBeUndefined();expect(chromeMock.permissions.remove).toHaveBeenCalledWith({origins:[`${SITE}/*`]});
+  });
+  it('unpair makes no call when Chrome has no permission for the site, or nothing is paired',async()=>{
+    hasPermission=false;
+    expect((await call({type:'unpair'})).data).toMatchObject({revokedOnSite:false,pairing:'unpaired'});
+    expect(fetch).not.toHaveBeenCalled();expect(values.deviceKey).toBeUndefined();
+    expect((await call({type:'unpair'})).data).toMatchObject({revokedOnSite:false,pairing:'unpaired'});
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('a refresh saves the plugin\'s version, update link and database link for the pages',async()=>{
+    send(response({...deviceOptions(),minimumExtensionVersion:'0.3.0',updateUrl:'https://downloads.example.test/releases',databaseLink:'https://www.notion.so/abc'}));
+    expect((await call({type:'refresh-options'})).data.options).toMatchObject({minimumExtensionVersion:'0.3.0',updateUrl:'https://downloads.example.test/releases',databaseLink:'https://www.notion.so/abc'});
+    expect(values.options.databaseLink).toBe('https://www.notion.so/abc');
   });
 });

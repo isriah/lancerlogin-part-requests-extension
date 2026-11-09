@@ -30,6 +30,10 @@ export interface DeviceOptions {
   recipients: Choice[];
   defaultRecipientId: string | null;
   recipientsUpdatedMs: number | null;
+  /** Optional because lists cached by an earlier version, or sent by an earlier plugin, don't have them. */
+  minimumExtensionVersion?: string | null;
+  updateUrl?: string | null;
+  databaseLink?: string | null;
 }
 /** A recent request for the same product, as the plugin reports it. */
 export interface Repeat { memberName: string; createdMs: number; pageUrl: string | null; state: string }
@@ -71,6 +75,8 @@ export interface SettingsView {
   options?: DeviceOptions;
   defaultTeam: string;
 }
+/** What Unpair answers. `revokedOnSite` is true only when the site confirmed it, so the page knows what to say. */
+export interface UnpairView extends SettingsView { revokedOnSite: boolean }
 export type Message =
   | { type: 'capture'; tabId: number }
   | { type: 'settings' }

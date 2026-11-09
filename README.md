@@ -28,12 +28,16 @@ Edits are saved locally per tab and original URL. Reopening the popup restores t
 
 If someone asked for the same product in the last 7 days, the popup says who and when. It is only a warning, and you can still send.
 
-During a LancerLogin update, the extension waits and tries again by itself with the same request ID, a limited number of times, and the site allows one create per ID. If the result is ever unknown, it may already exist in Notion, so the extension will not resend it on its own. Check the database before choosing to try again.
+During a LancerLogin update, the extension waits and tries again by itself with the same request ID, a limited number of times, and the site allows one create per ID. If the result is ever unknown, it may already exist in Notion, so the extension will not resend it on its own. Use **Check ordering database** to look before choosing to try again.
+
+**Unpair this device** in Options removes the device from your team's site, which frees one of your 5 device slots, then forgets the key and Chrome's permission for the site. If the site can't confirm it, the extension still unpairs on this computer and says an Admin may need to remove the device.
+
+If your team's site asks for a newer version than this one, Options and the popup show a notice with a link to the update. It never blocks anything.
 
 ## Verification status
 
-- Unit tests (`npm test`): 214 pass, including all 20 adapter fixtures, the device API's results, worker persistence, and popup and Options interactions.
-- Browser end-to-end run (`npm run e2e`): 116 checks against the built extension with a simulated plugin API and Chrome's real permission prompt. It cannot prove the toolbar-click permission grant.
+- Unit tests (`npm test`): 269 pass, including all 20 adapter fixtures, the device API's results, version comparison, Unpair's outcomes, worker persistence, and popup and Options interactions.
+- Browser end-to-end run (`npm run e2e`): 145 checks against the built extension with a simulated plugin API and Chrome's real permission prompt. It cannot prove the toolbar-click permission grant.
 - A pass against the real plugin in a local preview, with Notion stubbed, has been run; see [Development](docs/DEVELOPMENT.md#tests). The extension has not yet been run against real Notion through the plugin, real Discord, real Cloudflare, or Google Chrome itself.
 - Vendor reader checks: see the [vendor matrix](docs/VENDORS.md).
 

@@ -38,7 +38,24 @@ describe('calling the device API',()=>{
   });
   it('reads teams and recipients, tolerating junk rows',async()=>{
     const {api}=client(response({memberName:'Test Student A',teams:[{id:'t',name:'T'},null,{name:'no id'}],recipients:[{id:'p',name:'P'}],defaultRecipientId:'p',statuses:[],vendors:[],recipientsUpdatedMs:null}));
-    expect(await api.options()).toEqual({memberName:'Test Student A',teams:[{id:'t',name:'T'}],recipients:[{id:'p',name:'P'}],defaultRecipientId:'p',recipientsUpdatedMs:null});
+    expect(await api.options()).toEqual({memberName:'Test Student A',teams:[{id:'t',name:'T'}],recipients:[{id:'p',name:'P'}],defaultRecipientId:'p',recipientsUpdatedMs:null,minimumExtensionVersion:null,updateUrl:null,databaseLink:null});
+  });
+  const options=(extra:Record<string,unknown>)=>client(response({memberName:'x',teams:[],recipients:[],...extra})).api.options();
+  it('keeps the minimum version, update link and database link when they are what they should be',async()=>{
+    expect(await options({minimumExtensionVersion:'0.10.0',updateUrl:'https://github.com/isriah/lancerlogin-part-requests-extension/releases',databaseLink:'https://www.notion.so/11111111222243338444555555555555'})).toMatchObject({minimumExtensionVersion:'0.10.0',updateUrl:'https://github.com/isriah/lancerlogin-part-requests-extension/releases',databaseLink:'https://www.notion.so/11111111222243338444555555555555'});
+  });
+  it.each([
+    ['minimumExtensionVersion','latest'],['minimumExtensionVersion',5],
+    ['updateUrl','http://downloads.example.test/x'],['updateUrl','javascript:alert(1)'],['updateUrl','https://user:pass@downloads.example.test/x'],
+    ['databaseLink','https://notion.so.evil.example.test/x'],['databaseLink','https://evilnotion.so/x'],['databaseLink','http://www.notion.so/x'],['databaseLink','javascript:alert(1)'],
+  ])('drops a bad %s: %j',async(field,value)=>{expect((await options({[field]:value}))[field as 'databaseLink']).toBeNull();});
+  it('self-revoke posts the key with no body, and is true only for a confirmed answer',async()=>{
+    const good=client(response({revoked:true}));expect(await good.api.revokeSelf()).toBe(true);
+    const [url,init]=good.fetch.mock.calls[0] as unknown as [string,RequestInit];
+    expect(url).toBe(`${API}/devices/self/revoke`);expect(init).toMatchObject({method:'POST',credentials:'omit',redirect:'error',headers:{Authorization:`Bearer ${DEVICE_KEY}`}});expect(init.body).toBeUndefined();
+    for(const reply of [response({code:'rate_limited',error:'Wait.'},429),response({code:'update_maintenance'},503),response({},200),new Response('<html>',{status:200})]) expect(await client(reply).api.revokeSelf()).toBe(false);
+    await expect(client(new Error('offline')).api.revokeSelf()).rejects.toMatchObject({code:'network'});
+    await expect(client(response({code:'pair_again',error:'x'},401)).api.revokeSelf()).rejects.toMatchObject({code:'pair_again'});
   });
   it('turns 401 on any keyed call into pair_again',async()=>{
     for(const call of [(a:PluginClient)=>a.options(),(a:PluginClient)=>a.check('https://www.revrobotics.com/x/',''),(a:PluginClient)=>a.saveRecipient('p'),(a:PluginClient)=>a.create(SUBMISSION_ID,draft()),(a:PluginClient)=>a.recorded(SUBMISSION_ID)]){

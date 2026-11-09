@@ -39,10 +39,13 @@ writeFileSync(join(extension, 'manifest.json'), JSON.stringify({ ...productionMa
 const DEVICE_KEY = 'e2eFakeDeviceKey00000000000000000000000000x'.slice(0, 43);
 const SECOND_KEY = 'e2eFakeDeviceKey00000000000000000000000000y'.slice(0, 43);
 const PERSON = 'c0000000-0000-4000-8000-00000000000a', GUEST = 'c0000000-0000-4000-8000-00000000000b';
+const UPDATE_URL = 'https://github.com/isriah/lancerlogin-part-requests-extension/releases';
+const DATABASE_URL = 'https://www.notion.so/11111111222243338444555555555555';
 const api = {
   pins: new Set(['K7M29QXP']), revoked: false, calls: [], posts: [], gets: [], recipients: [], checks: [], recorded: new Map(), keysSeen: new Set(),
   behavior: 'ok', latency: 0, release: null, maintenanceLeft: 0, retryAfter: '1', repeats: [], teams: [{ id: 'team-1', name: 'Test Team One' }, { id: 'team-2', name: 'Test Team Two' }],
   people: [{ id: PERSON, name: 'Test Student A' }, { id: GUEST, name: 'Test Guest' }], defaultRecipientId: null, currentKey: DEVICE_KEY,
+  minimumVersion: '0.2.0', updateUrl: UPDATE_URL, databaseLink: DATABASE_URL, selfRevoke: 'ok', selfRevoked: [],
 };
 const PAGE = 'https://app.notion.com/p/new-request';
 const sleep = ms => new Promise(done => setTimeout(done, ms));
@@ -62,8 +65,10 @@ async function plugin(route) {
     api.pins.delete(pin); api.pairedLabel = body.deviceLabel; api.revoked = false;
     return reply({ deviceKey: api.currentKey, memberName: 'Test Student A' }, 201);
   }
+  if (name === '/devices/self/revoke' && api.selfRevoke === 'offline') return route.abort('internetdisconnected');
+  if (name === '/devices/self/revoke' && api.selfRevoke === 'ok' && key === api.currentKey) { api.selfRevoked.push(key); api.revoked = true; return reply({ revoked: true }); }
   if (key !== api.currentKey || api.revoked) return reply({ error: 'This device is no longer paired. Run /ordering-pin in Discord and pair it again.', code: 'pair_again' }, 401);
-  if (name === '/options') return reply({ memberName: 'Test Student A', teams: api.teams, recipients: api.people, defaultRecipientId: api.defaultRecipientId, statuses: ['NORMAL Request', 'Incomplete Request'], vendors: ['REV'], recipientsUpdatedMs: 1 });
+  if (name === '/options') return reply({ memberName: 'Test Student A', teams: api.teams, recipients: api.people, defaultRecipientId: api.defaultRecipientId, statuses: ['NORMAL Request', 'Incomplete Request'], vendors: ['REV'], recipientsUpdatedMs: 1, minimumExtensionVersion: api.minimumVersion, updateUrl: api.updateUrl, databaseLink: api.databaseLink });
   if (name === '/recipient') { api.recipients.push(body); api.defaultRecipientId = body.notionUserId; return reply({ defaultRecipientId: body.notionUserId }); }
   if (name === '/check') { api.checks.push(body); return reply({ repeats: api.repeats }); }
   if (name.startsWith('/requests/')) {
@@ -212,7 +217,8 @@ try {
   check('Options: shows who, where and which device', /Test Student A/.test(await textOf(options, 'paired-member')) && (await textOf(options, 'paired-origin')) === SITE && (await textOf(options, 'paired-label')) === 'Test laptop');
   check('Options: PIN field is cleared', await options.evaluate(() => document.getElementById('pin').value === ''));
   check('Options: paired screen fits 1366x650', await fits(options, 650), await scrollHeight(options));
-  check('Options: Unpair explains it only forgets the key here', /only forgets the key/.test(await textOf(options, 'paired-card')));
+  check('Options: Unpair explains it frees a slot, and what happens offline', /frees one of your 5 device slots/.test(await textOf(options, 'paired-card')) && /an Admin may need to remove/.test(await textOf(options, 'paired-card')));
+  check('Options: at the minimum version there is no update notice', !(await visible(options, '#update-notice')));
   if (shots) await options.screenshot({ path: join(shots, 'pairing-paired.png') });
 
   // Defaults: teams and people from /options, the person saved with the site.
@@ -231,6 +237,19 @@ try {
   await reopened.setViewportSize({ width: 420, height: 800 });
   check('Options: no sideways scroll at narrow width', await reopened.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await reopened.close();
+
+  // The update notice: the built version is 0.2.0, and 0.10.0 is above it only when compared as numbers.
+  api.minimumVersion = '0.10.0';
+  const outdated = watch(await context.newPage());
+  await outdated.goto(optionsUrl);
+  await outdated.setViewportSize({ width: 1366, height: 650 });
+  check('Update notice: Options shows it below the minimum, comparing numbers', await until(outdated, () => !document.getElementById('update-notice').hidden, 10000) && /0\.2\.0/.test(await textOf(outdated, 'update-text')) && /0\.10\.0/.test(await textOf(outdated, 'update-text')));
+  check('Update notice: Options links to the releases page', (await outdated.getAttribute('#update-link', 'href')) === UPDATE_URL && (await outdated.getAttribute('#update-link', 'target')) === '_blank');
+  check('Update notice: Options still works', await visible(outdated, '#paired-card') && !(await outdated.isDisabled('#unpair')));
+  check('Options with the update notice fits 1366x650', await fits(outdated, 650), await scrollHeight(outdated));
+  if (shots) await outdated.screenshot({ path: join(shots, 'options-update-notice.png') });
+  await outdated.close();
+  api.minimumVersion = '0.2.0';
 
   // The key stays in the worker. Popup messages and product pages never see it.
   const asPopup = await send({ type: 'settings' });
@@ -287,6 +306,36 @@ try {
   await showWarnings(false);
   check('Popup form still fits with every unpaired warning showing', await fits(popup, 600), await scrollHeight(popup));
   await hideWarnings();
+
+  // The popup's update notice, with every other warning too, and it blocks nothing.
+  api.minimumVersion = '0.10.0';
+  popup = await reopen(popup, page);
+  await popup.waitForSelector('#request-form:not([hidden])');
+  check('Update notice: the popup shows it below the minimum', await until(popup, () => !document.getElementById('update-notice').hidden, 8000));
+  check('Update notice: the popup links to the releases page', (await popup.getAttribute('#update-link', 'href')) === UPDATE_URL);
+  check('Update notice: the popup can still send', !(await popup.isDisabled('#submit')));
+  check('Popup with the update notice fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  if (shots) await popup.screenshot({ path: join(shots, 'popup-update-notice.png') });
+  await popup.evaluate(() => {
+    const list = document.getElementById('capture-issues');
+    list.replaceChildren(...['Select all product options on the store page, or enter the exact variant and price manually.', 'Unit price needs your review.', 'SKU was not confirmed; it is optional.'].map(text => Object.assign(document.createElement('li'), { textContent: text })));
+    list.hidden = false; document.getElementById('currency-row').hidden = false;
+  });
+  check('Update notice: stays beside capture warnings', await visible(popup, '#update-notice'));
+  check('Popup with the update notice and capture warnings fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  await hideWarnings();
+  await showWarnings(true);
+  check('Update notice: gives way to messages that need acting on', !(await visible(popup, '#update-notice')));
+  check('Popup with an update due and every warning fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  await hideWarnings();
+  await showWarnings(false);
+  check('Popup with an update due and every unpaired warning fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  await hideWarnings();
+  check('Update notice: returns when those clear', await visible(popup, '#update-notice'));
+  api.minimumVersion = '0.2.0';
+  popup = await reopen(popup, page);
+  await popup.waitForSelector('#request-form:not([hidden])');
+  check('Update notice: gone once the version meets the minimum', await until(popup, () => document.getElementById('update-notice').hidden, 8000));
 
   // Editing the URL re-derives the vendor; unsupported URLs disable creation.
   await popup.fill('#url', 'https://www.pololu.com/product/5780');
@@ -395,6 +444,20 @@ try {
   await popup.click('#submit');
   check('Uncertain result says to check Notion', await titleIs(popup, 'Check Notion before retrying'), await textOf(popup, 'result-title'));
   check('Retry stays disabled until you confirm', await popup.isDisabled('#retry'));
+  check('Uncertain result links to the ordering database', await visible(popup, '#database-link') && (await popup.getAttribute('#database-link', 'href')) === DATABASE_URL && /Check ordering database/.test(await textOf(popup, 'database-link')));
+  check('The database link opens in a new tab', (await popup.getAttribute('#database-link', 'target')) === '_blank');
+  check('Popup with the uncertain result and link fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  // A lookalike from the site is dropped in the worker, and one already saved is dropped by the popup's own check.
+  api.databaseLink = 'https://notion.so.evil.example.test/x';
+  popup = await reopen(popup, page);
+  await until(popup, () => document.getElementById('database-link').hidden, 8000);
+  check('A lookalike database link from the site is never offered', !(await visible(popup, '#database-link')) && !(await popup.getAttribute('#database-link', 'href')));
+  await options.evaluate(async () => { const { options: saved } = await chrome.storage.local.get('options'); await chrome.storage.local.set({ options: { ...saved, databaseLink: 'https://evilnotion.so/x' } }); });
+  api.databaseLink = 'javascript:alert(1)';
+  popup = await reopen(popup, page);
+  await popup.waitForTimeout(600);
+  check('A bad link in saved lists is not offered either', !(await visible(popup, '#database-link')));
+  api.databaseLink = DATABASE_URL;
   popup = await reopen(popup, page);
   await popup.waitForTimeout(800);
   check('Uncertain result is not resent on reopen', api.posts.length === before + 1, `posts=${api.posts.length}`);
@@ -544,16 +607,44 @@ try {
   await pairWith(SITE, 'K7M29QXB', 'Test laptop');
   await options.waitForSelector('#paired-card:not([hidden])', { timeout: 10000 }).catch(() => {});
 
-  // Unpair: forgets the key and the site's access, keeps drafts, and makes no call to the site.
+  // Unpair while offline: it still happens here, and says an Admin may need to remove the device.
   await popup.close();
+  api.selfRevoke = 'offline';
+  const offlineKey = api.currentKey;
+  options.once('dialog', dialog => dialog.accept());
+  await options.click('#unpair');
+  await options.waitForSelector('#pair-form:not([hidden])', { timeout: 15000 }).catch(() => {});
+  check('Unpair offline: returns to the pairing screen', await visible(options, '#pair-form') && (await textOf(options, 'pairing-state')) === 'NOT PAIRED');
+  check('Unpair offline: says an Admin may need to remove it', /Unpaired on this computer/.test(await textOf(options, 'notice')) && /an Admin may need to remove it/.test(await textOf(options, 'notice')), await textOf(options, 'notice'));
+  check('Unpair offline: the key is gone', !('deviceKey' in await options.evaluate(() => chrome.storage.local.get('deviceKey'))));
+  check('Unpair offline: Chrome\'s access to the site is removed', realPrompt ? !(await canReach()) : true);
+  check('Unpair offline: the site never heard of it', !api.selfRevoked.includes(offlineKey));
+
+  // Unpair with an expired key: the site refuses it, and the wording is the same.
+  api.selfRevoke = 'ok'; api.pins.add('K7M29QXC');
+  await pairWith(SITE, 'K7M29QXC', 'Test laptop', 'Allow');
+  await options.waitForSelector('#paired-card:not([hidden])', { timeout: 10000 }).catch(() => {});
+  check('Pairing after an unpair asks Chrome again and works', await visible(options, '#paired-card'), await textOf(options, 'notice'));
+  api.selfRevoke = 'expired'; api.revoked = true;
+  options.once('dialog', dialog => dialog.accept());
+  await options.click('#unpair');
+  await options.waitForSelector('#pair-form:not([hidden])', { timeout: 10000 }).catch(() => {});
+  check('Unpair with an expired key: still unpairs, and says an Admin may need to remove it', (await textOf(options, 'pairing-state')) === 'NOT PAIRED' && /an Admin may need to remove it/.test(await textOf(options, 'notice')), await textOf(options, 'notice'));
+
+  // Unpair: tells the site, frees the slot, forgets the key and the site's access, and keeps drafts.
+  api.selfRevoke = 'ok'; api.pins.add('K7M29QXD');
+  await pairWith(SITE, 'K7M29QXD', 'Test laptop', 'Allow');
+  await options.waitForSelector('#paired-card:not([hidden])', { timeout: 10000 }).catch(() => {});
   const callsBeforeUnpair = api.calls.length;
   options.once('dialog', dialog => dialog.accept());
   await options.click('#unpair');
   await options.waitForSelector('#pair-form:not([hidden])', { timeout: 5000 }).catch(() => {});
+  check('Unpair: says the slot is free, and needs no Admin', /frees one of your 5 device slots/.test(await textOf(options, 'notice')) && !/Admin/.test(await textOf(options, 'notice')), await textOf(options, 'notice'));
+  if (shots) await options.screenshot({ path: join(shots, 'unpaired.png') });
   check('Unpair: returns to the pairing screen', await visible(options, '#pair-form') && (await textOf(options, 'pairing-state')) === 'NOT PAIRED');
   check('Unpair: the key is gone', !('deviceKey' in await options.evaluate(() => chrome.storage.local.get('deviceKey'))));
   check('Unpair: Chrome\'s access to the site is removed', realPrompt ? !(await canReach()) : true);
-  check('Unpair: only local, with no call to the site', api.calls.length === callsBeforeUnpair, api.calls.slice(callsBeforeUnpair).join());
+  check('Unpair: calls the site once, with the key, then nothing else', api.calls.slice(callsBeforeUnpair).join() === 'POST /devices/self/revoke' && api.selfRevoked.at(-1) === api.currentKey, api.calls.slice(callsBeforeUnpair).join());
   popup = await popupFor(page);
   await popup.waitForSelector('#request-form:not([hidden])');
   check('Unpair: the draft on this page is kept', /NEO 550/.test(await popup.inputValue('#description')) && await popup.isDisabled('#submit'));

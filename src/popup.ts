@@ -2,7 +2,8 @@ import './styles.css';
 import { VENDORS, vendorForUrl } from './vendors';
 import { validateDraft } from './validate';
 import type { CaptureResult, Choice, DraftRecord, Repeat, RequestDraft, SettingsView, Submission } from './types';
-import { choices, el, errorText, notice, send, UiError } from './ui';
+import { safePageUrl } from './client';
+import { choices, el, errorText, notice, send, showUpdateNotice, UiError } from './ui';
 
 let settings: SettingsView = { pairing: 'unpaired', defaultTeam: '' };
 let record: DraftRecord | undefined;
@@ -26,6 +27,7 @@ function fillChoices(team: string, recipient: string): void {
   choices(el('recipient'), withSaved(settings.options?.recipients || [], recipient), recipient, 'Choose recipient');
 }
 function showPairing(): void {
+  showUpdateNotice(settings.options);
   el('setup').hidden = isPaired();
   el('setup-title').textContent = settings.pairing === 'expired' ? 'Pair this device again' : 'Pair this device to send requests';
   el('setup-message').textContent = settings.pairing === 'expired'
@@ -117,6 +119,11 @@ function showSubmission(value: Submission): void {
     el('result-message').textContent = uncertain ? 'The result could not be confirmed. Your request may already exist. Check your team\'s ordering database in Notion before sending it again.' : value.message || 'You can close this popup. Reopen it to check the saved result.';
   }
   el('uncertain-check').hidden = !uncertain;
+  // Checked again here, because the link comes from saved lists: it only ever opens Notion.
+  const database = el<HTMLAnchorElement>('database-link');
+  const databaseLink = uncertain ? safePageUrl(settings.options?.databaseLink) : null;
+  database.hidden = !databaseLink;
+  if (databaseLink) database.href = databaseLink; else database.removeAttribute('href');
   el('retry').hidden = value.state !== 'failed' && !uncertain;
   el('new-request').hidden = value.state !== 'success';
   el<HTMLButtonElement>('retry').disabled = uncertain && !el<HTMLInputElement>('checked-notion').checked;
@@ -176,6 +183,7 @@ for (const vendor of VENDORS) { const li = document.createElement('li'); li.text
 async function refreshOptions(): Promise<void> {
   try {
     settings = await send<SettingsView>({ type: 'refresh-options' }); showPairing();
+    if (submission) showSubmission(submission); // A result already showing can gain the database link.
     if (!record || submission) return;
     const team = input('team').value || settings.defaultTeam;
     const recipient = input('recipient').value || settings.options?.defaultRecipientId || '';

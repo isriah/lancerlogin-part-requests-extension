@@ -85,3 +85,13 @@
 /* The repeat warning takes the help line's place, so the form still fits with every warning showing. */
 .popup:has(#repeat-warning:not([hidden])) #request-form>.field-help{display:none}
 .popup:has(#repeat-warning:not([hidden])) #request-form>.hints,.popup:has(#repeat-warning:not([hidden])) #request-form>.validation{max-height:48px}
+/* The update notice never blocks anything. In the popup it takes the help line's place, and gives way to anything that needs acting on now, so the form still fits. Options always has room for it. */
+.update-notice{font-size:12px;line-height:1.3;color:#795520;padding:6px 10px;border-radius:6px;background:#fff6e3;margin:0 0 12px}
+.popup .update-notice{font-size:11px;margin:0 0 6px}
+.update-notice a{color:inherit;font-weight:650;white-space:nowrap}
+.popup:has(#update-notice:not([hidden])) #request-form>.field-help{display:none}
+.popup:has(#update-notice:not([hidden])) #request-form>.hints{max-height:48px}
+.popup:has(#notice:not([hidden])) #update-notice,.popup:has(#setup:not([hidden])) #update-notice,.popup:has(#result:not([hidden])) #update-notice,.popup:has(#validation:not([hidden])) #update-notice,.popup:has(#repeat-warning:not([hidden])) #update-notice{display:none}
+/* With a result to check the form is locked, so its help line and Discard give their room to the database link. */
+.database-link{display:inline-block;font-size:12px;font-weight:650;margin:2px 0}
+.popup:has(#uncertain-check:not([hidden])) #request-form>.field-help,.popup:has(#uncertain-check:not([hidden])) #request-form>.actions{display:none}

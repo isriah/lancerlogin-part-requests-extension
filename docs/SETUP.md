@@ -26,7 +26,9 @@ The team and recipient lists come from the plugin and refresh each time you open
 
 ## Unpairing and pairing again
 
-**Unpair this device** forgets the key on this computer and removes Chrome's permission for the site. It does not end the key on the site, because the plugin has no route for a device to revoke itself: the device stays on the Admin page and counts toward your limit of 5 until an Admin removes it. Drafts on this computer are kept.
+**Unpair this device** first tells the site to end this device's key, which frees one of your 5 device slots. The Admin page then shows the device as revoked. Next it forgets the key on this computer and removes Chrome's permission for the site. Drafts on this computer are kept.
+
+If the site can't confirm it, for example because you are offline, the site is updating, or the key has expired, Unpair still happens on this computer, and tells you an Admin may need to remove the device. It waits up to 10 seconds for the site, and doesn't try again later, because the key is gone by then.
 
 An Admin can revoke a device, and leaving the active roster ends access. The extension then forgets its key and asks you to pair again. Drafts are kept, and pairing again from the same member lets you send them. After a site restore, every device has to pair again.
 
@@ -45,7 +47,9 @@ Local extension storage is not an encrypted credential vault. Anyone with access
 | You chose Deny | Click **Pair this device** again and choose **Allow**. |
 | That PIN does not work | Run `/ordering-pin` again and use the new PIN. Only the latest PIN works, once, for 10 minutes. |
 | Pairing is paused | Too many wrong PINs were tried. Try again later. |
-| You already have 5 paired devices | Ask an Admin to remove a device, then run `/ordering-pin` again. |
+| You already have 5 paired devices | Unpair one you still have, or ask an Admin to remove one, then run `/ordering-pin` again. |
+| Update available | The site asks for a newer extension than this one. Everything keeps working. Use the link for the new version. |
+| Unpaired on this computer, and an Admin may need to remove it | The site couldn't confirm removing the device. If it still counts toward your limit, ask an Admin to remove it. |
 | Did not answer like a site with Part Requests | Check the address from the Discord reply. |
 | The site address must start with https:// | Use the address from the Discord reply. Plain `http` is refused. |
 | This device is no longer paired | Run `/ordering-pin` and pair again in Options. Your drafts are kept. |
@@ -61,7 +65,7 @@ Local extension storage is not an encrypted credential vault. Anyone with access
 | Unsupported URL | Use a fixed allowlisted store. Redirect shortened links by opening them normally first. BambuLab is US-only and CTRE uses its store subdomain. |
 | Access check | Complete it yourself in the product tab; reopen the extension afterward. No bypass is attempted. |
 | Request was not created | Notion refused it, or the site has no record of it. Review the fields and use **Review and retry**. |
-| Check Notion before retrying | A timeout, conflict, server error, worker interruption, or lost response may conceal a successful create. Check your team's ordering database in Notion. Only confirm the checkbox if the request does not exist. |
+| Check Notion before retrying | A timeout, conflict, server error, worker interruption, or lost response may conceal a successful create. Use **Check ordering database** to open your team's database in Notion. The link shows only when the site gave a valid Notion address. Only confirm the checkbox if the request does not exist. |
 | Form locked while pending | Wait for the result. After 30 seconds without confirmation, the popup offers the explicit check-and-retry flow. |
 | Browser says extension APIs unavailable | Load the folder through `chrome://extensions`, then use the toolbar popup. A regular web tab is only a layout preview. |
 

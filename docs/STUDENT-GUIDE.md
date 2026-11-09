@@ -35,10 +35,12 @@ Good to know:
 | Pair this device again | An Admin removed this device or you left the roster. Run `/ordering-pin` again and pair in settings. Your drafts are kept. |
 | That PIN does not work | Run `/ordering-pin` again and use the newest PIN. |
 | You chose Deny | Click **Pair this device** again and choose **Allow**. |
-| You already have 5 paired devices | Ask an Admin to remove one. |
+| You already have 5 paired devices | Click **Unpair this device** on one you still have, or ask an Admin to remove one. |
+| Update available | Your extension is older than your team's site asks for. It keeps working. Follow the link, or ask your team for the new zip, when you have a moment. |
+| Unpaired on this computer, and an Admin may need to remove it | The site couldn't be reached or didn't accept the key. If `/ordering-pin` says you have too many devices, ask an Admin to remove this one. |
 | The site is updating | Wait. It tries again by itself. |
-| **Check Notion before retrying** | Your request may already exist. Look in the ordering database first. Only if it isn't there, tick the box and retry. |
+| **Check Notion before retrying** | Your request may already exist. Click **Check ordering database** to look first. Only if it isn't there, tick the box and retry. |
 | Your name isn't in the list | Ask an Admin to refresh the recipient list. |
 | Open a supported store | This store or page isn't supported. Open one specific product on a store from the list. |
 
-**Replacing a computer?** Run `/ordering-pin` and pair the new one. **Unpair this device** in settings only forgets the key on this computer, so ask an Admin to remove the old device too. Tell an Admin if a computer is lost.
+**Replacing a computer?** On the old one, click **Unpair this device** in settings, which removes it from your team's site and frees one of your 5 device slots. Then run `/ordering-pin` and pair the new one. Tell an Admin if a computer is lost, because only an Admin can remove a device you no longer have.

@@ -1,8 +1,8 @@
 import './styles.css';
 import { manifestAllowsLocalHttp, normalizePin, normalizeSiteAddress, originPattern } from './pairing';
 import { VENDORS } from './vendors';
-import type { SettingsView } from './types';
-import { choices, el, errorText, notice, send, UiError } from './ui';
+import type { SettingsView, UnpairView } from './types';
+import { choices, el, errorText, notice, send, showUpdateNotice, UiError } from './ui';
 
 let settings: SettingsView = { pairing: 'unpaired', defaultTeam: '' };
 const address = el<HTMLInputElement>('site-address');
@@ -13,6 +13,7 @@ el('version').textContent = globalThis.chrome?.runtime?.getManifest?.().version 
 
 function render(): void {
   const isPaired = settings.pairing === 'paired';
+  showUpdateNotice(settings.options);
   el('pair-form').hidden = isPaired;
   el('paired-card').hidden = !isPaired;
   el('defaults-card').hidden = !isPaired || !settings.options;
@@ -56,12 +57,18 @@ el<HTMLFormElement>('defaults-form').addEventListener('submit', async event => {
   } catch (error) { await expiredCheck(error); }
 });
 el('unpair').addEventListener('click', async () => {
-  if (!confirm('Unpair this device? This only forgets the key on this computer. To pair again you need a new PIN from /ordering-pin. Drafts are kept.')) return;
+  if (!confirm('Unpair this device? This removes it from your team\'s site, which frees one of your 5 device slots, and forgets the key on this computer. To pair again you need a new PIN from /ordering-pin. Drafts are kept.')) return;
+  const button = el<HTMLButtonElement>('unpair');
+  button.disabled = true;
+  notice('Unpairing...');
   try {
-    settings = await send<SettingsView>({ type: 'unpair' });
+    const result = await send<UnpairView>({ type: 'unpair' });
+    settings = result;
     address.value = ''; label.value = ''; render();
-    notice('Unpaired. This computer no longer has the key. It stays on your team\'s device list until an Admin removes it.');
+    if (result.revokedOnSite) notice('Unpaired. This device was removed from your team\'s site, which frees one of your 5 device slots, and this computer no longer has the key.', 'success');
+    else notice('Unpaired on this computer, which no longer has the key. The site could not confirm removing this device, so it may still count toward your limit of 5, and an Admin may need to remove it.', 'error');
   } catch (error) { notice(errorText(error), 'error'); }
+  finally { button.disabled = false; }
 });
 async function expiredCheck(error: unknown): Promise<void> {
   notice(errorText(error), 'error');

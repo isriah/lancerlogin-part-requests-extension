@@ -10,6 +10,7 @@
 | `src/types.ts` | Capture, draft, settings view, message, and submission models |
 | `src/pairing.ts` | Site address and PIN normalization, the API address |
 | `src/client.ts` | The plugin's device API: transport, one outcome per documented result |
+| `src/version.ts` | Numeric version comparison for the update notice |
 | `src/validate.ts` | Draft checks shown before sending. The plugin checks again. |
 | `src/submissions.ts` | Persist-before-POST submission queue |
 | `src/background.ts` | Trusted message boundary, the device key, local drafts and receipts, capture, submit and retries |
@@ -29,6 +30,17 @@ The Pair click calls `chrome.permissions.request` for `<origin>/*` synchronously
 After a grant, the worker exchanges the PIN for a key with `POST /pair`, and saves the key and the site in `chrome.storage.local`. A refusal only the plugin could give (such as a wrong PIN) keeps the grant. Anything else may be a mistyped address, so the grant is removed.
 
 `401 pair_again` on any call forgets the key, marks the site as expired and keeps the lists and every draft. The same member's device can then pair again and send those drafts.
+
+Unpair calls `POST /devices/self/revoke` first, with a 10-second limit and no retry, then forgets the key, the site and Chrome's permission whatever the answer was. Only a `200 { revoked: true }` counts as removed from the site. Every other answer, and no answer, gets the wording that an Admin may need to remove the device.
+
+## What comes with the lists
+
+`GET /options` also brings three values, which are saved with the lists.
+
+- **`minimumExtensionVersion` and `updateUrl`:** Options and the popup show a notice with the link when the manifest's version is below the minimum, comparing number by number. It never blocks anything. In the popup it gives way to any message that needs acting on now, so the form still fits, and Options always shows it. A value that isn't a version shows no notice, and a link that isn't `https` is dropped, leaving the notice without one.
+- **`databaseLink`:** after an uncertain result, the popup offers **Check ordering database**. The worker and the popup both pass it through `safePageUrl`, the same check as created page links, so only `https` links on `notion.so` and `notion.com` are ever opened.
+
+`/options` answers `503` while the plugin's Notion connection is down. The extension keeps using what it saved.
 
 ## Persistence and duplicate-click protection
 
@@ -74,7 +86,7 @@ npm run build
 npm run e2e
 ```
 
-`e2e/extension.e2e.mjs` loads `dist` in a real browser with a simulated plugin API routed at the site's origin, so the service worker's real `fetch`, host permission and CSP are all exercised. It covers pairing, Deny and Allow, capture, draft persistence, rejected pages, twelve real clicks at one spot, pending and uncertain results, request payloads, a revoked device, maintenance retries with the same ID, the repeat warning, layout size, and CSP errors. `E2E_SCREENSHOTS=<folder>` saves screenshots, and `E2E_LIVE_STORES=1` uses real store pages instead of synthetic copies.
+`e2e/extension.e2e.mjs` loads `dist` in a real browser with a simulated plugin API routed at the site's origin, so the service worker's real `fetch`, host permission and CSP are all exercised. It covers pairing, Deny and Allow, capture, draft persistence, rejected pages, twelve real clicks at one spot, pending and uncertain results, request payloads, a revoked device, Unpair online, offline and with an expired key, the update notice, the ordering database link, maintenance retries with the same ID, the repeat warning, layout size, and CSP errors. `E2E_SCREENSHOTS=<folder>` saves screenshots, and `E2E_LIVE_STORES=1` uses real store pages instead of synthetic copies.
 
 On Windows it opens a headed Edge and presses Chrome's real permission prompt through `e2e/press-prompt-button.ps1`, which only looks at that browser's own windows, so don't use the mouse during that part. Set `E2E_PROMPT=stub` or use another platform to simulate the prompt instead, which proves less. Set `E2E_CHANNEL` or `E2E_BROWSER` to choose a browser. Its copy of the manifest lists the test stores as `host_permissions`, because automation cannot click the toolbar, so it does not prove the toolbar permission grant. Http and localhost are never in the production manifest. A test build against a local preview adds them to its own copy. Never place a real credential, personal address, account header, cart, or complete authenticated page dump in fixtures.
 
@@ -90,5 +102,6 @@ Use the plugin on a dev site with a test database. Enter credentials only where 
 6. Create one NORMAL test request and one Incomplete test request. Confirm the exact fields in Notion, formula total, people, status, and working product link. Check that no page template or body content was added.
 7. Rapidly click submit and close/reopen the popup while submission is pending. Confirm one page was created. Repeat offline. For an uncertain result, inspect Notion before any retry.
 8. Revoke the device on the Admin page with a draft open. Confirm the prompt to pair again, that the draft is kept, and that it sends after pairing again.
+9. Click **Unpair this device**. Confirm the Admin page shows it as revoked and the member has one more free slot. Repeat offline and confirm the wording says an Admin may need to remove it.
 
 Record browser version, date, vendor/URL, expected and observed values, and remaining limitations in the matrix. A vendor's acceptance is complete only after both fixture tests and a representative live toolbar check pass. Do not label Ali Express verified based on its synthetic fixture.

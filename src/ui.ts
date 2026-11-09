@@ -1,4 +1,6 @@
-import type { Message } from './types';
+import { safeUpdateUrl } from './client';
+import { isBelowMinimum } from './version';
+import type { DeviceOptions, Message } from './types';
 export class UiError extends Error {
   constructor(message: string, public code?: string, public details?: unknown) { super(message); }
 }
@@ -15,5 +17,17 @@ export function choices(select: HTMLSelectElement, values: { id: string; name: s
 }
 export function notice(text: string, kind = ''): void {
   const node = el('notice'); node.textContent = text; node.className = `notice ${kind}`; node.hidden = !text;
+}
+/** The update notice, on the pages that have one. It only informs: nothing is ever blocked for being out of date. */
+export function showUpdateNotice(options: DeviceOptions | undefined): void {
+  const current = globalThis.chrome?.runtime?.getManifest?.().version;
+  const outdated = isBelowMinimum(current, options?.minimumExtensionVersion);
+  el('update-notice').hidden = !outdated;
+  if (!outdated) return;
+  el('update-text').textContent = `This extension is version ${current}. Your team's site asks for ${options!.minimumExtensionVersion} or newer. You can keep using it for now.`;
+  const link = el<HTMLAnchorElement>('update-link');
+  const url = safeUpdateUrl(options!.updateUrl);
+  link.hidden = !url;
+  if (url) link.href = url; else link.removeAttribute('href');
 }
 export function errorText(error: unknown): string { return error instanceof Error ? error.message : 'Something went wrong. Please try again.'; }

@@ -1,10 +1,13 @@
 import { AppError } from './errors';
 import { apiBase } from './pairing';
+import { isVersion } from './version';
 import type { DeviceOptions, Repeat, RequestDraft } from './types';
 
 type Json = Record<string, any>;
 interface Reply { status: number; body: Json; retryAfter: number | null; parsed: boolean }
 export const REQUEST_TIMEOUT_MS = 40_000;
+/** A student is waiting on Unpair, which goes ahead on this computer either way. */
+export const REVOKE_TIMEOUT_MS = 10_000;
 const NO_ANSWER = 'The site did not confirm this request. It may already exist.';
 const CONFLICT = 'A request with this ID already exists with different details. Check the ordering database in Notion.';
 
@@ -31,6 +34,14 @@ export function safePageUrl(value: unknown): string | null {
     const u = new URL(String(value));
     if (u.protocol === 'https:' && ['notion.so', 'notion.com'].some(h => u.hostname === h || u.hostname.endsWith(`.${h}`))) return u.href;
   } catch { /* Never display an arbitrary link from an unexpected response. */ }
+  return null;
+}
+/** The update link is the plugin's choice of page, so it only has to be https. */
+export function safeUpdateUrl(value: unknown): string | null {
+  try {
+    const u = new URL(String(value));
+    if (u.protocol === 'https:' && !u.username && !u.password) return u.href;
+  } catch { /* No link, and the notice still shows. */ }
   return null;
 }
 /** Maps a status and body to what the extension should do. See "Results of POST /requests" in the plugin's README. */
@@ -60,7 +71,7 @@ export class PluginClient {
   // The wrapper matters: Chrome throws "Illegal invocation" if native fetch is called as a method of this class.
   constructor(private origin: string, private key?: string, private transport: typeof fetch = (input, init) => fetch(input, init)) {}
   /** Network failures reject with a `network` AppError. Any HTTP answer resolves. A 401 on a keyed call becomes `pair_again`. */
-  private async call(path: string, method: 'GET' | 'POST', body?: unknown): Promise<Reply> {
+  private async call(path: string, method: 'GET' | 'POST', body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Reply> {
     let response: Response;
     try {
       response = await this.transport(`${apiBase(this.origin)}${path}`, {
@@ -68,7 +79,7 @@ export class PluginClient {
         headers: { ...(this.key ? { Authorization: `Bearer ${this.key}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         // A redirect could carry the key elsewhere, and cookies have no part in this.
-        credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       console.warn('Site request failed before a response:', error instanceof Error ? error.name : 'unknown error');
@@ -100,7 +111,15 @@ export class PluginClient {
       memberName: text(reply.body.memberName, ''), teams: choices(reply.body.teams), recipients: choices(reply.body.recipients),
       defaultRecipientId: typeof reply.body.defaultRecipientId === 'string' ? reply.body.defaultRecipientId : null,
       recipientsUpdatedMs: typeof reply.body.recipientsUpdatedMs === 'number' ? reply.body.recipientsUpdatedMs : null,
+      minimumExtensionVersion: isVersion(reply.body.minimumExtensionVersion) ? reply.body.minimumExtensionVersion : null,
+      updateUrl: safeUpdateUrl(reply.body.updateUrl),
+      databaseLink: safePageUrl(reply.body.databaseLink),
     };
+  }
+  /** True only when the site confirmed this key is revoked. Offline and an unknown key reject, as on any other call. */
+  async revokeSelf(): Promise<boolean> {
+    const reply = await this.call('/devices/self/revoke', 'POST', undefined, REVOKE_TIMEOUT_MS);
+    return reply.status === 200 && reply.body.revoked === true;
   }
   async saveRecipient(notionUserId: string | null): Promise<void> {
     const reply = await this.call('/recipient', 'POST', { notionUserId });
