@@ -365,6 +365,7 @@ function storeCard(result: StoreResult): HTMLElement {
   card.dataset.result = result.storeId;
   if (result.stopped) card.append(h('p', { className: 'x-tone x-result-stop', tone: 'warning' }, result.stopped.message));
   if (result.noAccess) card.append(h('p', { className: 'x-help x-result-stop' }, 'This extension has no access to this store, so nothing was tried.'));
+  if (result.resultNote && (added.length || flagged.length)) card.append(h('p', { className: 'x-help x-result-stop' }, result.resultNote));
   if (added.length) card.append(resultGroup('Added', added.map(resultItem)));
   if (flagged.length) card.append(resultGroup('Flagged, check in the cart', flagged.map(resultItem)));
   if (failed.length) card.append(resultGroup('Failed, not in the cart', failed.map(resultItem)));

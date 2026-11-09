@@ -21,6 +21,8 @@ export interface StoreResult {
   stopped?: { reason: StopReason; message: string };
   /** No access was granted, so nothing was tried. */
   noAccess?: boolean;
+  /** The store's own note for the results. */
+  resultNote?: string;
 }
 export interface BuildOptions {
   /** Waits between lines. Tests pass their own. */
@@ -38,7 +40,7 @@ const lineIn = (lines: CartLine[], key: string): CartLine | undefined => lines.f
 
 export const checklistResult = (store: StoreMethod, orders: CartOrder[], extra: Partial<StoreResult> = {}): StoreResult => ({
   storeId: store.id, label: store.label, badge: extra.noAccess ? 'checklist' : store.badge, cartUrl: store.cartUrl,
-  items: orders.map(order => ({ order, outcome: 'checklist', message: '', confirmed: false })), ...extra,
+  items: orders.map(order => ({ order, outcome: 'checklist', message: '', confirmed: false })), ...(store.resultNote ? { resultNote: store.resultNote } : {}), ...extra,
 });
 
 /** Runs the store's steps. Only a StoreStop or the person's Stop ends it early. Everything not reached becomes a checklist item. */

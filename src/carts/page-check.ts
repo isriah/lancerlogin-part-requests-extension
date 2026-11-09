@@ -16,6 +16,8 @@ export function inspectPage(): { kind: 'ok' } | PageStop {
   const wall = /just a moment|attention required|verify you are (a )?human|are you a (robot|human)|access denied|access to this page has been denied|pardon our interruption|robot check|security check|unusual traffic|press (&|and) hold/i;
   const body = (document.body?.innerText || '').replace(/\s+/g, ' ');
   if (wall.test(title) || body.length < 2000 && wall.test(body)) return { kind: 'stop', reason: 'bot-check', detail: 'a CAPTCHA or bot check' };
+  // Home Depot's 403 page has no challenge in it, just this title and "Oops!! Something went wrong." The status can't be seen from here.
+  if (/^error page\b/i.test(title) || body.length < 2000 && /oops!* something went wrong/i.test(body)) return { kind: 'stop', reason: 'bot-check', detail: 'an access block' };
   if ([...document.querySelectorAll('input[type="password"]')].some(shown)) return { kind: 'stop', reason: 'login', detail: 'a sign-in page' };
   if (/please (log|sign) in|(log|sign) in to continue/i.test(body.slice(0, 20000))) return { kind: 'stop', reason: 'login', detail: 'a sign-in page' };
   return { kind: 'ok' };

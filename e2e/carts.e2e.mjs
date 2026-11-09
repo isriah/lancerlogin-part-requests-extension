@@ -19,14 +19,14 @@ const shots = process.env.E2E_SCREENSHOTS;
 const channel = process.env.E2E_CHANNEL || (process.platform === 'win32' ? 'msedge' : 'chromium');
 const realPrompt = process.env.E2E_PROMPT !== 'stub' && process.platform === 'win32' && channel === 'msedge';
 const SITE = 'https://team-site.example.test';
-const STORE_ORIGINS = ['https://www.amazon.com/*', 'https://ambrosiafilament.com/*', 'https://andymark.com/*', 'https://us.store.bambulab.com/*', 'https://store.ctr-electronics.com/*', 'https://www.ferrulesdirect.com/*', 'https://www.harborfreight.com/*', 'https://www.mcmaster.com/*', 'https://www.onlinemetals.com/*', 'https://www.pololu.com/*', 'https://powerwerx.com/*', 'https://www.revrobotics.com/*', 'https://www.swervedrivespecialties.com/*', 'https://swervedrivespecialties.com/*', 'https://swyftrobotics.com/*', 'https://www.thethriftybot.com/*', 'https://www.vbeltguys.com/*', 'https://wcproducts.com/*', 'https://west3d.com/*'];
+const STORE_ORIGINS = ['https://www.homedepot.com/*', 'https://www.aliexpress.us/*', 'https://www.aliexpress.com/*', 'https://www.amazon.com/*', 'https://ambrosiafilament.com/*', 'https://andymark.com/*', 'https://us.store.bambulab.com/*', 'https://store.ctr-electronics.com/*', 'https://www.ferrulesdirect.com/*', 'https://www.harborfreight.com/*', 'https://www.mcmaster.com/*', 'https://www.onlinemetals.com/*', 'https://www.pololu.com/*', 'https://powerwerx.com/*', 'https://www.revrobotics.com/*', 'https://www.swervedrivespecialties.com/*', 'https://swervedrivespecialties.com/*', 'https://swyftrobotics.com/*', 'https://www.thethriftybot.com/*', 'https://www.vbeltguys.com/*', 'https://wcproducts.com/*', 'https://west3d.com/*'];
 const NOTICE = 'No AI places your orders. This extension doesn\'t use AI. It only helps add items to a store\'s cart, after you click Build carts. You review the cart and place every order yourself on the store\'s own site.';
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${!ok && detail !== '' ? ` -> ${typeof detail === 'string' ? detail : JSON.stringify(detail)}` : ''}`); };
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 const productionManifest = JSON.parse(readFileSync(join(root, 'dist', 'manifest.json'), 'utf8'));
-check('Manifest: version 0.5.0', productionManifest.version === '0.5.0');
+check('Manifest: version 0.6.0', productionManifest.version === '0.6.0');
 check('Manifest: no cookie, web-request or always-on host access', !/cookies|webRequest|declarativeNet/.test(JSON.stringify(productionManifest)) && !productionManifest.host_permissions);
 const extension = join(work, 'extension');
 cpSync(join(root, 'dist'), extension, { recursive: true });
@@ -52,7 +52,7 @@ const fullList = () => [
   revOrder('r2', { description: 'Test incomplete with no SKU', sku: null, quantity: null, unitPrice: null, status: 'Incomplete Request', statusGroup: 'INCOMPLETE' }),
   revOrder('r3', { description: 'Test incomplete with everything', sku: 'TEST-3003', status: 'Incomplete Request', statusGroup: 'INCOMPLETE', quantity: 1 }),
   polOrder('p1', { unitPrice: 14.85 }),
-  order('h1', { vendor: 'Home Depot', urlVendor: 'Home Depot', productUrl: 'https://www.homedepot.com/p/test/100', quantity: 3, unitPrice: 2.97, description: 'Test machine screws, 15 pack' }),
+  order('h1', { vendor: 'Bolt Barn', productUrl: 'https://bolt-barn.example.test/p/test/100', quantity: 3, unitPrice: 2.97, description: 'Test machine screws, 15 pack' }),
   order('o1', { vendor: null, productUrl: 'https://not-a-store.example.test/thing', quantity: 1, unitPrice: 18, description: 'Test sheet from nowhere known' }),
 ];
 async function plugin(route) {
@@ -105,7 +105,7 @@ const stores = createStores();
 try {
   await context.route(`${SITE}/**`, plugin);
   await stores.install(context);
-  const allowedHosts = /^(https:\/\/team-site\.example\.test|https:\/\/wcproducts\.com|https:\/\/www\.revrobotics\.com|https:\/\/www\.pololu\.com|https:\/\/www\.mcmaster\.com|chrome-extension:|data:|about:|chrome:|edge:)/;
+  const allowedHosts = /^(https:\/\/team-site\.example\.test|https:\/\/wcproducts\.com|https:\/\/www\.revrobotics\.com|https:\/\/www\.pololu\.com|https:\/\/www\.mcmaster\.com|https:\/\/www\.homedepot\.com|https:\/\/www\.aliexpress\.us|chrome-extension:|data:|about:|chrome:|edge:)/;
   // Anything else would really leave the computer, so it never gets that far.
   await context.route('**/*', route => {
     const url = route.request().url();
@@ -203,9 +203,9 @@ try {
   check('Screen: the notice is word for word', (await carts.textContent('#carts-notice')) === NOTICE);
   const placing = await carts.evaluate(() => { const n = document.getElementById('carts-notice').getBoundingClientRect(), t = document.getElementById('orders-table').getBoundingClientRect(); return { above: n.top < t.top, tall: n.height, color: getComputedStyle(document.getElementById('carts-notice')).color }; });
   check('Screen: the notice sits above the list', placing.above, placing);
-  check('Screen: stores are grouped, by name, unknown last', JSON.stringify(await carts.evaluate(() => [...document.querySelectorAll('tbody')].map(b => b.querySelector('.x-vendor-heading span').textContent))) === JSON.stringify(['Home Depot', 'McMaster', 'Pololu', 'REV', 'WCP', 'Other store']));
+  check('Screen: stores are grouped, by name, unknown last', JSON.stringify(await carts.evaluate(() => [...document.querySelectorAll('tbody')].map(b => b.querySelector('.x-vendor-heading span').textContent))) === JSON.stringify(['Bolt Barn', 'McMaster', 'Pololu', 'REV', 'WCP', 'Other store']));
   const badges = await carts.evaluate(() => Object.fromEntries([...document.querySelectorAll('tbody')].map(b => [b.querySelector('.x-vendor-heading span').textContent, b.querySelector('.x-method').textContent])));
-  if (realPrompt) check('Screen: each store shows its method', JSON.stringify(badges) === JSON.stringify({ 'Home Depot': 'Checklist', McMaster: 'Item by item', Pololu: 'Item by item', REV: 'Direct', WCP: 'Direct', 'Other store': 'Checklist' }), badges);
+  if (realPrompt) check('Screen: each store shows its method', JSON.stringify(badges) === JSON.stringify({ 'Bolt Barn': 'Checklist', McMaster: 'Item by item', Pololu: 'Item by item', REV: 'Direct', WCP: 'Direct', 'Other store': 'Checklist' }), badges);
   check('Selection: NORMAL starts ticked', await ticked('w1') && await ticked('m1'));
   check('Selection: RUSH starts ticked', await ticked('r1'));
   check('Selection: SLOW starts unticked, and can be ticked', !(await ticked('w2')) && !(await disabled('w2')));
@@ -321,9 +321,9 @@ try {
   check('REV: added with action=add', stores.state.rev.cart.get('TEST-3001') === 1 && stores.state.adds().filter(a => a.store === 'rev').every(a => /action=add&sku=TEST-3001&qty=1/.test(a.url)));
   check('Pololu: Quick add line, read back, and the price change is flagged', stores.state.pololu.cart.get('2136') === 2 && stores.state.adds().some(a => a.store === 'pololu' && a.body === '2136,2') && /Price changed: requested at \$14\.85, store shows \$15\.95/.test(await cardText(carts, 'pololu')), await cardText(carts, 'pololu'));
   check('McMaster: pasted one line, pressed ADD, read back', stores.state.mcmaster.cart.get('91251A537') === 2 && /1 added/.test(await cardText(carts, 'mcmaster')), await cardText(carts, 'mcmaster'));
-  check('Checklist: Home Depot lists links and quantities', /Add these yourself/.test(await cardText(carts, 'homedepot')) && /qty 3/.test(await cardText(carts, 'homedepot')) && await carts.$eval('[data-result="homedepot"] li a', a => a.href === 'https://www.homedepot.com/p/test/100'));
+  check('Checklist: a store with no method lists links and quantities', /Add these yourself/.test(await cardText(carts, 'checklist:bolt-barn')) && /qty 3/.test(await cardText(carts, 'checklist:bolt-barn')) && await carts.$eval('[data-result="checklist:bolt-barn"] li a', a => a.href === 'https://bolt-barn.example.test/p/test/100'));
   check('Checklist: an unknown store does too', /Test sheet from nowhere known, qty 1/.test(await cardText(carts, 'checklist:other-store')) && await carts.$eval('[data-result="checklist:other-store"] li a', a => a.href === 'https://not-a-store.example.test/thing'));
-  check('Checklist: nothing went to those sites', !outsiders.some(url => /homedepot|not-a-store/.test(url)), outsiders);
+  check('Checklist: nothing went to those sites', !outsiders.some(url => /bolt-barn|not-a-store/.test(url)), outsiders);
   const cartLinks = await carts.$$eval('[data-result] a.ui-button', links => links.map(a => a.href));
   check('Results: a link to each built cart, none to checkout', ['https://wcproducts.com/cart', 'https://www.revrobotics.com/cart.php', 'https://www.pololu.com/cart', 'https://www.mcmaster.com/orders/'].every(url => cartLinks.includes(url)) && !cartLinks.some(url => /checkout/.test(url)), cartLinks);
   check('Marks: only the confirmed orders, as ID and quantity', JSON.stringify(api.marks.map(m => m.orderId).sort()) === JSON.stringify(['m1', 'p1', 'r1', 'w1']) && api.marks.every(m => Object.keys(m).sort().join() === 'orderId,quantity'), api.marks);
@@ -342,6 +342,33 @@ try {
   await build(carts);
   check('Retry: a second build adds nothing, in any store', stores.state.adds().length === addsSoFar && totals() === holding, { adds: stores.state.adds().length, holding, now: totals() });
   check('Retry: says each is already in the cart', /Already in the cart: it holds 4, so nothing was added/.test(await cardText(carts, 'wcp')) && /Already in the cart: it holds 1/.test(await cardText(carts, 'rev')), await cardText(carts, 'wcp'));
+  await carts.close();
+
+  // Home Depot and Ali Express can't run live from an automated profile, so this is where their injected functions run in a real browser. Synthetic pages only.
+  fresh();
+  api.orders = [
+    order('hd1', { vendor: 'Home Depot', urlVendor: 'Home Depot', productUrl: 'https://www.homedepot.com/p/Test-Hex-Nut/204647886', quantity: 3, unitPrice: null, description: 'Test hex nut' }),
+    order('ali1', { vendor: 'Ali Express', urlVendor: 'Ali Express', productUrl: 'https://www.aliexpress.us/item/3256800000000001.html', quantity: 2, unitPrice: null, description: 'Test wire - Size: 0.8mm (5Meter)' }),
+  ];
+  carts = await openCarts();
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  await build(carts);
+  check('Home Depot: pressed the page\'s own button, read back after the rows loaded, and named the kept choice', stores.state.homedepot.cart.get('204647886') === 3 && /kept: Delivery/.test(await cardText(carts, 'homedepot')) && stores.state.homedepot.otherPresses === 0, await cardText(carts, 'homedepot'));
+  check('Ali Express: selected the named option, added, read back, and said it leaves the ticks alone', stores.state.aliexpress.cart.get('0.8mm (5Meter)') === 2 && /1 added/.test(await cardText(carts, 'aliexpress')) && /leaves those ticks alone/.test(await cardText(carts, 'aliexpress')) && stores.state.aliexpress.otherPresses === 0, await cardText(carts, 'aliexpress'));
+  check('Home Depot and Ali Express: only the confirmed orders are marked', JSON.stringify(api.marks.map(m => m.orderId).sort()) === JSON.stringify(['ali1', 'hd1']), api.marks);
+  const hdAliAdds = stores.state.adds().length;
+  await carts.click('#back');
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  await build(carts);
+  check('Home Depot and Ali Express: a second build adds nothing', stores.state.adds().length === hdAliAdds && /Already in the cart: it holds 3/.test(await cardText(carts, 'homedepot')) && /Already in the cart: it holds 2/.test(await cardText(carts, 'aliexpress')), { adds: stores.state.adds().length, hdAliAdds });
+  await carts.close();
+  fresh();
+  stores.state.homedepot.mode = 'oops';
+  api.orders = [order('hd1', { vendor: 'Home Depot', urlVendor: 'Home Depot', productUrl: 'https://www.homedepot.com/p/Test-Hex-Nut/204647886', quantity: 1, unitPrice: null, description: 'Test hex nut' })];
+  carts = await openCarts();
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  await build(carts);
+  check('Home Depot: the Oops page stops the store, with nothing pressed', /CAPTCHA or bot check/.test(await cardText(carts, 'homedepot')) && stores.state.adds().length === 0, await cardText(carts, 'homedepot'));
   await carts.close();
 
   // A retry after a store capped a line asks only for what is missing, and a partly filled cart adds the difference.

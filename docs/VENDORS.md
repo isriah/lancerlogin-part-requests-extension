@@ -9,7 +9,7 @@ Rechecked **2026-11-08** with the current reader:
 - **Ali Express:** US shoppers land on `aliexpress.us`, which is now allowlisted. Real item pages captured title, price and USD; SKU stays blank. Still needs a toolbar check.
 - **Ambrosia Filament, BambuLab:** captured correctly, but the default variant differs from the example below.
 - **McMaster:** a toolbar request in a normal Chrome session captured every field correctly. A fresh automated profile gets no part details, so check on a new student's browser during rollout.
-- **Home Depot:** the old price selectors no longer match, and product metadata ($1.18) disagreed with the displayed price ($2.97). The reader now uses the displayed price and never falls back to metadata for this store. The automated profile gets an error page, which is now reported as blocked.
+- **Home Depot:** the old price selectors no longer match, and product metadata ($1.18) disagreed with the displayed price ($2.97). The reader now uses the displayed price and never falls back to metadata for this store. A price under a dollar shows as cents, such as "14 ¢" under `[data-component^="price"]`, which reads as 0.14. Fixtures hold the observed text for cents, plain dollars and the `#unit-case-price-includes` block. The cents reading hasn't had a toolbar check on the real page. The automated profile gets an error page, which is now reported as blocked.
 - **Amazon:** the automated profile got a challenge page. A normal Chrome session shows the product and the elements the reader uses ($11.98).
 - **WCP:** still correctly requires checking one part first.
 - All other vendors: the captured price was compared with the price displayed on the live page and matched.

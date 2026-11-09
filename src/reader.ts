@@ -194,12 +194,20 @@ export function capturePage(config: AdapterConfig): CaptureResult {
     out.price = null; out.issues.push('Custom kit options can change the price. Enter the displayed configured unit price manually.');
   }
   // Home Depot's product metadata can disagree with the displayed price, so never fall back to it.
-  if (config.id === 'homedepot' && domPrice === null) {
+  // Under a dollar it shows cents, such as "14 ¢", which is 0.14. A per-piece amount, "(20¢ /piece)" or "20¢/piece", is never the selling price.
+  let homeDepotDisplayed = false;
+  if (config.id === 'homedepot') {
     const heading = document.querySelector('h1');
-    const box = document.querySelector('#unit-case-price-includes') || [...document.querySelectorAll('[data-component^="price:Price"]')].find(e => isVisible(e) && !!heading && !!(heading.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING));
-    const quote = clean(box?.textContent).split(/\b(?:save|was)\b|\(/i)[0];
-    const amounts = quote.match(/\$\s*\d[\d,]*(?:\s*\.\s*\d{2})?/g) || [];
-    out.price = amounts.length === 1 ? money(amounts[0].replace(/\s+/g, '')) : null;
+    const box = document.querySelector('#unit-case-price-includes') || [...document.querySelectorAll('[data-component^="price"]')].find(e => isVisible(e) && !!heading && !!(heading.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const quote = (domPriceText || clean(box?.textContent)).split(/\b(?:save|was)\b|\(/i)[0];
+    const dollars = quote.match(/\$\s*\d[\d,]*(?:\s*\.\s*\d{2})?/g) || [];
+    const cents = quote.match(/(?<![\d.,$])\d{1,3}\s*¢(?!\s*\/)/g) || [];
+    const perPiece = /¢\s*\//.test(quote);
+    const centsValue = cents.length === 1 ? Number(cents[0].replace(/\D/g, '')) : NaN;
+    if (dollars.length === 1 && !cents.length) out.price = money(dollars[0].replace(/\s+/g, ''));
+    else if (!dollars.length && !perPiece && centsValue < 100) out.price = centsValue / 100;
+    else out.price = null;
+    homeDepotDisplayed = out.price !== null;
   }
   if (config.profile === 'amazon' && !out.sku) out.sku = location.pathname.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i)?.[1] || '';
   if (config.id === 'mcmaster' && !out.sku) out.sku = location.pathname.match(/\/(\d+[A-Z]\d+)/i)?.[1] || '';
@@ -209,6 +217,7 @@ export function capturePage(config: AdapterConfig): CaptureResult {
   const explicitCurrency = /\b(AUD|CAD|EUR|GBP|CNY|USD|JPY|INR)\b/i.exec(domPriceText)?.[1]?.toUpperCase();
   out.currency = explicitCurrency || (/CA\$|C\$/.test(domPriceText) ? 'CAD' : /AU\$|A\$/.test(domPriceText) ? 'AUD' : /€/.test(domPriceText) ? 'EUR' : /£/.test(domPriceText) ? 'GBP' : clean(offer?.priceCurrency) || meta('product:price:currency') || meta('og:price:currency') || first(['[itemprop="priceCurrency"]'], true));
   if (!out.currency && /\$/.test(domPriceText) && config.id !== 'aliexpress') out.currency = 'USD';
+  if (homeDepotDisplayed) out.currency = 'USD';
   if ((out.price !== null || out.currency) && out.currency !== 'USD') out.issues.push(out.currency ? `Price is in ${out.currency}. Enter a USD price and confirm it before submitting.` : 'Currency could not be confirmed. Enter a USD price and confirm it before submitting.');
   out.variants = [...new Set(out.variants)].filter((v, _, all) => !all.some(other => other !== v && (other.split(' / ').includes(v) || other.endsWith(`: ${v}`))));
   const extras = out.variants.filter(v => !out.description.toLowerCase().includes(v.toLowerCase()));

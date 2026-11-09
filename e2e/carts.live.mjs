@@ -1,7 +1,7 @@
 // A live check of the store modules against the real stores, through the built extension, in a throwaway browser profile that is deleted afterwards.
 // It adds one real item per store to that profile's own carts and goes no further: it never checks out, signs in or answers a challenge. The plugin is
 // simulated with synthetic data. It stops at any wall, which is the result for that store.
-// Run: npm run build && npm run live:carts. E2E_SCREENSHOTS=<folder> saves built-carts-live-*.png. Never point this at anyone's own profile.
+// Run: npm run build && npm run live:carts. LIVE_ONLY=ambrosia,swyft runs just those. E2E_SCREENSHOTS=<folder> saves built-carts-live-*.png. Never point this at anyone's own profile.
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -15,7 +15,7 @@ const shots = process.env.E2E_SCREENSHOTS;
 const channel = process.env.E2E_CHANNEL || 'msedge';
 const SITE = 'https://team-site.example.test';
 const DEVICE_KEY = 'e2eFakeDeviceKey00000000000000000000000000x'.slice(0, 43);
-const STORES = ['https://www.amazon.com/*', 'https://ambrosiafilament.com/*', 'https://andymark.com/*', 'https://us.store.bambulab.com/*', 'https://store.ctr-electronics.com/*', 'https://www.ferrulesdirect.com/*', 'https://www.harborfreight.com/*', 'https://www.mcmaster.com/*', 'https://www.onlinemetals.com/*', 'https://www.pololu.com/*', 'https://powerwerx.com/*', 'https://www.revrobotics.com/*', 'https://www.swervedrivespecialties.com/*', 'https://swervedrivespecialties.com/*', 'https://swyftrobotics.com/*', 'https://www.thethriftybot.com/*', 'https://www.vbeltguys.com/*', 'https://wcproducts.com/*', 'https://west3d.com/*'];
+const STORES = ['https://www.homedepot.com/*', 'https://www.aliexpress.us/*', 'https://www.aliexpress.com/*', 'https://www.amazon.com/*', 'https://ambrosiafilament.com/*', 'https://andymark.com/*', 'https://us.store.bambulab.com/*', 'https://store.ctr-electronics.com/*', 'https://www.ferrulesdirect.com/*', 'https://www.harborfreight.com/*', 'https://www.mcmaster.com/*', 'https://www.onlinemetals.com/*', 'https://www.pololu.com/*', 'https://powerwerx.com/*', 'https://www.revrobotics.com/*', 'https://www.swervedrivespecialties.com/*', 'https://swervedrivespecialties.com/*', 'https://swyftrobotics.com/*', 'https://www.thethriftybot.com/*', 'https://www.vbeltguys.com/*', 'https://wcproducts.com/*', 'https://west3d.com/*'];
 // The same refusal as src/carts/safety.ts, which this script can't import. A unit test keeps the two alike.
 const NEVER = /checkout|action=buy|\/gp\/buy(\/|$|\?)|\/cart\/\d+:\d+|\/pay(ment)?(\/|$|\?)|place-?order/i;
 const HARBOR_FREIGHT_CART = 'https://www.harborfreight.com/checkout/cart';
@@ -41,15 +41,19 @@ const context = await chromium.launchPersistentContext(join(work, 'profile'), {
   channel, headless: false, viewport: { width: 1366, height: 860 },
   args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, '--no-first-run', '--no-default-browser-check'],
 });
-const report = { navigations: [], checkoutNavigations: [], stages: {} };
+// Bot checks appeared at these from automated profiles, so they are for a person's own browser. Nothing here may reach them.
+const OWNER_ONLY = /(^|\.)(homedepot|amazon|mcmaster|harborfreight|onlinemetals|powerwerx|bambulab|aliexpress)\.(com|us)$/i;
+const report = { navigations: [], checkoutNavigations: [], ownerOnly: [], embeddedBlocked: [], stages: {} };
 const fail = [];
 try {
   await context.route(`${SITE}/**`, plugin);
   // Every top-level page anything in this browser went to. A checkout address is refused here too, and recorded.
   await context.route('**/*', route => {
     const request = route.request();
-    if (!request.isNavigationRequest() || request.frame().parentFrame()) return route.fallback();
     const url = request.url();
+    // Store pages embed widgets from some of these, such as Amazon Pay. Those are blocked and noted. Only going to one of them fails the run.
+    if (OWNER_ONLY.test(new URL(url).hostname)) { (request.isNavigationRequest() && !request.frame().parentFrame() ? report.ownerOnly : report.embeddedBlocked).push(url.split('?')[0]); return route.abort(); }
+    if (!request.isNavigationRequest() || request.frame().parentFrame()) return route.fallback();
     report.navigations.push(`${request.method()} ${url.split('?')[0]}`);
     if (forbidden(url)) { report.checkoutNavigations.push(url); return route.abort(); }
     return route.fallback();
@@ -118,8 +122,49 @@ try {
       report.wcpCart = await look.evaluate(async () => (await (await fetch('/cart.js')).json()).items.map(i => [i.variant_id, i.sku, i.quantity]));
     }
   }
-  // McMaster last: a fresh profile is expected to hit its login wall, and that's where it stops.
-  if (wanted('mcmaster')) await run('mcmaster', [order('mcmaster', { vendor: 'McMaster', urlVendor: 'McMaster', productUrl: 'https://www.mcmaster.com/91251A537/', description: 'Live check McMaster screws' })], false);
+  // The stores proven by script, now through the built extension: one cheap item each, then a retry. Each store's trouble stays its own. A wall is that store's
+  // result and is never tried again from here.
+  const shopify = [
+    { name: 'ambrosia', vendor: 'Ambrosia Filament', home: 'https://ambrosiafilament.com', sku: 'AMB4605STAREF' },
+    { name: 'andymark', vendor: 'AndyMark', home: 'https://andymark.com', sku: 'am-1775' },
+    { name: 'ctre', vendor: 'CTRE', home: 'https://store.ctr-electronics.com', sku: 'WCP-1508' },
+    { name: 'ferrules', vendor: 'FerrulesDirect', home: 'https://www.ferrulesdirect.com', sku: 'FDSPP6' },
+    { name: 'sds', vendor: 'SDS', home: 'https://www.swervedrivespecialties.com', variant: '51590193905965' },
+    { name: 'thrifty', vendor: 'Thrifty Bot', home: 'https://www.thethriftybot.com', sku: 'TTB-0004' },
+    { name: 'vbelts', vendor: 'V-Belt Guys', home: 'https://www.vbeltguys.com', sku: 'AK26.5' },
+    { name: 'west3d', vendor: 'West3D', home: 'https://west3d.com', sku: 'QID2573' },
+  ];
+  report.items = {};
+  for (const store of shopify.filter(item => wanted(item.name))) {
+    try {
+      const opened = await look.goto(`${store.home}/cart`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      if (!opened?.ok()) { report.items[store.name] = { lookup: `the cart page answered ${opened?.status()}`, title: await look.title() }; continue; }
+      // Read-only: the product list, a page at a time, to find the item's product link. It stops at the first refusal.
+      const found = await look.evaluate(async ({ sku, variant }) => {
+        for (let number = 1; number <= 4; number++) {
+          const reply = await fetch(`/products.json?limit=250&page=${number}`);
+          if (!reply.ok) return { refused: reply.status };
+          const { products } = await reply.json();
+          if (!products.length) break;
+          for (const product of products) for (const item of product.variants) if (variant ? String(item.id) === variant : item.sku === sku) return { handle: product.handle, id: item.id, sku: item.sku, price: Number(item.price), available: item.available, title: product.title };
+          await new Promise(done => setTimeout(done, 2500));
+        }
+        return { missing: true };
+      }, store);
+      report.items[store.name] = found;
+      if (!found.handle) continue;
+      await run(store.name, [order(store.name, { vendor: store.vendor, urlVendor: store.vendor, sku: store.sku ?? null, productUrl: `${store.home}/products/${found.handle}?variant=${found.id}`, quantity: 1, unitPrice: found.price, description: `Live check ${found.title}` })]);
+      await look.goto(`${store.home}/cart`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      report.stages[store.name].cart = await look.evaluate(async () => (await (await fetch('/cart.js')).json()).items.map(i => [i.variant_id, i.sku, i.quantity]));
+    } catch (error) { report.stages[store.name] = { ...report.stages[store.name], error: String(error?.message ?? error).slice(0, 300) }; }
+  }
+  if (wanted('swyft')) {
+    try {
+      await run('swyft', [order('swyft', { vendor: 'Swyft', urlVendor: 'Swyft', sku: 'SR-Servo-10', productUrl: 'https://swyftrobotics.com/motion/swyft-servos?variant=49812010631462', quantity: 1, unitPrice: 12.99, description: 'Live check Swyft servo dongle' })]);
+      await look.goto('https://swyftrobotics.com/cart', { waitUntil: 'load', timeout: 45000 });
+      report.stages.swyft.cart = await look.evaluate(() => localStorage.getItem('swyft.cart.v2'));
+    } catch (error) { report.stages.swyft = { ...report.stages.swyft, error: String(error?.message ?? error).slice(0, 300) }; }
+  }
   await look.close();
 } catch (error) {
   fail.push(String(error?.message ?? error));
@@ -127,5 +172,5 @@ try {
   await context.close().catch(() => undefined);
   try { rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 }); report.profileDeleted = true; } catch { report.profileDeleted = `left at ${work}`; }
 }
-console.log(JSON.stringify({ ...report, navigations: [...new Set(report.navigations)], fail }, null, 1));
-process.exit(fail.length || report.checkoutNavigations.length ? 1 : 0);
+console.log(JSON.stringify({ ...report, navigations: [...new Set(report.navigations)], ownerOnly: [...new Set(report.ownerOnly)], embeddedBlocked: [...new Set(report.embeddedBlocked)], fail }, null, 1));
+process.exit(fail.length || report.checkoutNavigations.length || report.ownerOnly.length ? 1 : 0);

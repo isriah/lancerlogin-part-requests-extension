@@ -1,4 +1,4 @@
-// Small synthetic copies of the four stores, routed at their real addresses so no request leaves the computer. Each keeps a cart and a log.
+// Small synthetic copies of six stores, routed at their real addresses so no request leaves the computer. Each keeps a cart and a log.
 // What the pages look like comes from the research and from live checks of REV, Pololu and WCP. McMaster's is a guess at a page nobody could see
 // signed in, so passing here says nothing about the real one.
 const page = (title, body, script = '') => `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body>${body}${script ? `<script>${script}</script>` : ''}</body></html>`;
@@ -12,9 +12,11 @@ export function createStores() {
     rev: { cart: new Map(), stock: new Map(), mode: 'ok', known: new Set(['TEST-3001', 'TEST-3002', 'TEST-3003']) },
     pololu: { cart: new Map(), mode: 'ok' },
     mcmaster: { cart: new Map(), mode: 'ok' },
+    homedepot: { cart: new Map(), mode: 'ok', otherPresses: 0 },
+    aliexpress: { cart: new Map(), mode: 'ok', otherPresses: 0 },
     reset() {
       this.log.length = 0; this.checkoutHits.length = 0; this.addTimes.length = 0;
-      for (const store of [this.wcp, this.rev, this.pololu, this.mcmaster]) { store.cart.clear(); store.mode = 'ok'; store.stock?.clear(); }
+      for (const store of [this.wcp, this.rev, this.pololu, this.mcmaster, this.homedepot, this.aliexpress]) { store.cart.clear(); store.mode = 'ok'; store.stock?.clear(); }
     },
     adds() { return this.log.filter(entry => entry.add); },
   };
@@ -119,6 +121,61 @@ export function createStores() {
     note('mcmaster', request);
     return wall(route, s.mode) ?? html(route, mcmCart(s));
   }
+  // Home Depot and Ali Express, from what was seen in a signed-in browser. The cart rows arrive late, as the real ones do.
+  const report = (path, body) => `fetch('${path}', { method: 'POST', body: ${body} })`;
+  const hdProduct = () => page('Test Hex Nut', `<span data-testid="header-cart-count">0</span><h1>Test hex nut</h1><div data-component="price:Price:v1">14 ¢</div>
+    <button data-testid="deliveryTile" aria-pressed="true">Delivery</button><button data-testid="pickupTile" aria-pressed="false">Pickup</button><button>Please Select</button>
+    <div data-component="add-to-cart:AddToCart:v1"><input id="qty" type="text" class="sui-input-base-input" value="1"><button id="add">Add to Cart</button></div>
+    <aside><button id="rec">Add to Cart</button></aside><div id="panel"></div>`, `
+    document.getElementById('rec').addEventListener('click', () => ${report('/synthetic-other', "'rec'")});
+    document.getElementById('add').addEventListener('click', async () => {
+      await ${report('/synthetic-add', "document.getElementById('qty').value")};
+      document.getElementById('panel').innerHTML = '<div role="dialog"><h2>Added to Cart</h2><h3>Do not forget these</h3><div data-component="add-to-cart:Upsell"><button id="upsell">Add to Cart</button></div></div>';
+      document.getElementById('upsell').addEventListener('click', () => ${report('/synthetic-other', "'upsell'")});
+    });`);
+  const hdRows = s => [...s.cart].map(([item, q]) => `<div data-component="cart-item:CartItem:v2"><a href="/p/Test/${item}">Thing</a><input class="sui-input-base-input" value="${q}"><button>Save For Later</button></div>`).join('') + (s.cart.size ? '' : '<p>Your cart is empty</p>') + '<h2>Saved For Later</h2><div data-component="cart-item:CartItem:v2"><a href="/p/Saved/999999999">Private saved line</a><button>Move to Cart</button></div>';
+  const hdCart = s => page('Cart', `<span data-testid="header-cart-count">${[...s.cart.values()].reduce((a, b) => a + b, 0)}</span><h1>Cart</h1><div id="rows"></div>`, `
+    setTimeout(() => { document.getElementById('rows').innerHTML = ${JSON.stringify(hdRows(s))}; }, 700);`);
+  const OOPS = page('Error Page', '<h1>Oops!! Something went wrong.</h1><p>Please refresh page</p><button>Refresh</button>');
+  async function homedepot(route) {
+    const request = route.request(), url = new URL(request.url()), s = state.homedepot;
+    if (/checkout/i.test(url.pathname)) return checkout(route, 'homedepot');
+    if (url.pathname === '/synthetic-add') {
+      const quantity = Number(request.postData());
+      note('homedepot', request, { add: true, body: quantity });
+      s.cart.set('204647886', (s.cart.get('204647886') ?? 0) + quantity);
+      return route.fulfill({ status: 200, body: 'ok' });
+    }
+    if (url.pathname === '/synthetic-other') { s.otherPresses++; return route.fulfill({ status: 200, body: 'ok' }); }
+    note('homedepot', request);
+    if (s.mode === 'oops') return route.fulfill({ status: 403, contentType: 'text/html', body: OOPS });
+    return html(route, url.pathname === '/cart' ? hdCart(s) : hdProduct());
+  }
+  const aliListing = () => page('Test wire', `<h1>Test wire</h1><div class="price--current--x">$0.46</div>
+    <div data-sku-row="14"><div data-sku-col="14-1" title="0.8mm (5Meter)" class="sku-item--text--x"><span>0.8mm (5Meter)</span></div><div data-sku-col="14-2" title="1.0mm (5Meter)" class="sku-item--text--x sku-item--selected--x"><span>1.0mm (5Meter)</span></div></div>
+    <input class="comet-v2-input-number-input" value="1"><button id="buy">Buy now</button><button id="add"><span>Add to cart</span></button>`, `
+    document.querySelectorAll('[data-sku-col]').forEach(col => col.addEventListener('click', () => {
+      document.querySelectorAll('[data-sku-col]').forEach(other => { other.className = 'sku-item--text--x'; });
+      col.className = 'sku-item--text--x sku-item--selected--x';
+    }));
+    document.getElementById('buy').addEventListener('click', () => ${report('/synthetic-other', "'buy'")});
+    document.getElementById('add').addEventListener('click', () => ${report('/synthetic-add', "JSON.stringify([document.querySelector('[data-sku-col][class*=selected]').title, document.querySelector('input').value])")});`);
+  const aliRows = s => [...s.cart].map(([name, q]) => `<div class="cart-product"><a href="//www.aliexpress.us/item/3256800000000001.html">Test wire</a><div>${name}</div><input class="comet-v2-input-number-input" value="${q}"></div>`).join('');
+  const aliCart = s => page(`Cart (${s.cart.size})`, `<h1>Cart (${s.cart.size})</h1><div id="rows"></div><button id="pay">Checkout</button>`, `
+    setTimeout(() => { document.getElementById('rows').innerHTML = ${JSON.stringify(aliRows(s))}; }, 700);`);
+  async function aliexpress(route) {
+    const request = route.request(), url = new URL(request.url()), s = state.aliexpress;
+    if (/checkout/i.test(url.pathname)) return checkout(route, 'aliexpress');
+    if (url.pathname === '/synthetic-add') {
+      const [name, quantity] = JSON.parse(request.postData());
+      note('aliexpress', request, { add: true, body: [name, quantity] });
+      s.cart.set(name, (s.cart.get(name) ?? 0) + Number(quantity));
+      return route.fulfill({ status: 200, body: 'ok' });
+    }
+    if (url.pathname === '/synthetic-other') { s.otherPresses++; return route.fulfill({ status: 200, body: 'ok' }); }
+    note('aliexpress', request);
+    return html(route, url.pathname === '/p/shoppingcart/index.html' ? aliCart(s) : aliListing());
+  }
   return {
     state,
     async install(context) {
@@ -126,6 +183,8 @@ export function createStores() {
       await context.route('https://www.revrobotics.com/**', rev);
       await context.route('https://www.pololu.com/**', pololu);
       await context.route('https://www.mcmaster.com/**', mcmaster);
+      await context.route('https://www.homedepot.com/**', homedepot);
+      await context.route('https://www.aliexpress.us/**', aliexpress);
     },
   };
 }

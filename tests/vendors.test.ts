@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { capturePage } from '../src/reader';
 import { VENDORS, adapters, vendorForUrl } from '../src/vendors';
-import { fixtures, ld, product } from './fixtures/vendors';
+import { fixtures, homeDepotPrices, ld, product } from './fixtures/vendors';
 
 function load(id: string, html?: string, url?: string) {
   const f = fixtures.find(f => f.id === id)!;
@@ -102,6 +102,32 @@ describe('Home Depot displayed price', () => {
   });
   it('leaves price blank rather than trusting metadata when nothing is displayed',()=>{
     expect(load('homedepot',`<h1>Screws 15-Pack</h1>${meta}`,url)()).toMatchObject({kind:'product',price:null});
+  });
+  for (const shape of homeDepotPrices) it(`matches the page for ${shape.name}, in USD, with no currency warning`,()=>{
+    const result=load('homedepot',shape.html,shape.url)();
+    expect(result).toMatchObject({kind:'product',price:shape.price,currency:'USD'});
+    expect(result.issues.join(' ')).not.toMatch(/USD|Unit price/);
+  });
+  const block=(price:string)=>`<h1>Hex Nut</h1><div data-component="price:Price:v8"><div>${price}</div></div>${meta}`;
+  it.each([['14 ¢',0.14],['14¢',0.14],['5 ¢',0.05],['99 ¢',0.99],['14 ¢ Save 2 ¢ Was 16 ¢',0.14]])('%s is %d',(text,price)=>{
+    expect(load('homedepot',block(text),url)().price).toBe(price);
+  });
+  it.each(['20¢ /piece','20¢/piece','100 ¢','14 ¢ 20 ¢','$2.97 14 ¢','1.5 ¢'])('leaves %s blank, not the metadata',text=>{
+    expect(load('homedepot',block(text),url)()).toMatchObject({price:null});
+  });
+  it('reads cents under the older price selector too, instead of taking 14 as dollars',()=>{
+    expect(load('homedepot',`<h1>Hex Nut</h1><div data-testid="price-format__main-price">14 ¢</div>${meta}`,url)().price).toBe(0.14);
+  });
+  it('doesn\'t read a price block above the title',()=>{
+    expect(load('homedepot',`<div data-component="price:Other">$9.00</div><h1>Hex Nut</h1>${meta}`,url)().price).toBeNull();
+  });
+  it('stays self-contained: the function works from its own source',()=>{
+    const source=capturePage.toString();
+    expect(source).toContain('¢');
+    vi.stubGlobal('location',new URL(url));
+    document.documentElement.innerHTML=`<head><title>Product</title></head><body>${block('14 ¢')}</body>`;
+    const rebuilt=new Function(`return (${source})`)() as typeof capturePage;
+    expect(rebuilt(VENDORS.find(v=>v.id==='homedepot')!).price).toBe(0.14);
   });
 });
 describe('error pages', () => {

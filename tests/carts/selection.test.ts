@@ -66,18 +66,18 @@ describe('what each store needs', () => {
 });
 describe('grouping and fallback', () => {
   it('groups by store, by name, with unknown stores last', () => {
-    const groups = groupOrders([order({ id: '1' }), order({ id: '2', vendor: null, urlVendor: null, productUrl: 'https://not-a-store.example.test/x' }), order({ id: '3', vendor: 'Home Depot', urlVendor: 'Home Depot', productUrl: 'https://www.homedepot.com/p/1' }), order({ id: '4', sku: 'TEST-2' })]);
-    expect(groups.map(g => g.store.label)).toEqual(['Home Depot', 'REV', 'Other store']);
+    const groups = groupOrders([order({ id: '1' }), order({ id: '2', vendor: null, urlVendor: null, productUrl: 'https://not-a-store.example.test/x' }), order({ id: '3', vendor: 'Bolt Barn', urlVendor: null, productUrl: 'https://bolt-barn.example.test/1' }), order({ id: '4', sku: 'TEST-2' })]);
+    expect(groups.map(g => g.store.label)).toEqual(['Bolt Barn', 'REV', 'Other store']);
     expect(groups[1].rows.map(r => r.order.id)).toEqual(['1', '4']);
   });
   it('a store with no method yet is a checklist, needing only a link and a quantity', () => {
-    const store = storeNamed('Home Depot');
+    const store = storeNamed('Bolt Barn');
     expect(store.badge).toBe('checklist');
     expect(store.steps).toBeUndefined();
     expect(store.origins).toEqual([]);
     expect(storeNamed('Never Heard Of It').badge).toBe('checklist');
     expect(storeNamed(null).label).toBe('Other store');
-    expect(rowFor(order({ vendor: 'Home Depot', urlVendor: 'Home Depot', productUrl: null, sku: null })).blocked).toMatch(/Home Depot needs a product link/);
+    expect(rowFor(order({ vendor: 'Bolt Barn', urlVendor: null, productUrl: null, sku: null })).blocked).toMatch(/Bolt Barn needs a product link/);
   });
   it('finds the store from the link when the plugin named none', () => {
     expect(storeForOrder(order({ vendor: null, urlVendor: null, productUrl: 'https://www.pololu.com/product/1' })).id).toBe('pololu');
@@ -110,10 +110,10 @@ describe('the registry', () => {
   });
   it('every store has the method its evidence supports', () => {
     expect(Object.fromEntries(STORES.map(s => [s.id, s.badge]))).toEqual({
-      aliexpress: 'checklist', amazon: 'item', ambrosia: 'direct', andymark: 'direct', bambu: 'item', ctre: 'direct', ferrules: 'direct', harborfreight: 'item', homedepot: 'checklist',
+      aliexpress: 'item', amazon: 'item', ambrosia: 'direct', andymark: 'direct', bambu: 'item', ctre: 'direct', ferrules: 'direct', harborfreight: 'item', homedepot: 'item',
       mcmaster: 'item', onlinemetals: 'item', pololu: 'item', powerwerx: 'item', rev: 'direct', sds: 'direct', swyft: 'item', thrifty: 'direct', vbelts: 'direct', wcp: 'direct', west3d: 'direct',
     });
-    expect(allStoreOrigins()).toHaveLength(19);
+    expect(allStoreOrigins()).toHaveLength(22);
   });
 });
 describe('addresses a store tab refuses', () => {

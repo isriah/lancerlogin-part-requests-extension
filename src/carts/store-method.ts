@@ -60,6 +60,8 @@ export interface StoreMethod {
   requiredFields: OrderField[];
   /** Anything else this store needs, as phrases to follow "needs": "a part number". */
   missing?(order: CartOrder): string[];
+  /** Something the person should know about this store's cart, shown in the results once anything has been added. */
+  resultNote?: string;
   /** Absent means a checklist. */
   steps?: StoreSteps;
 }
