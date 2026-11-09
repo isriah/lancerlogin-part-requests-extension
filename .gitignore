@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.npm-cache/
+coverage/
+*.local
+.env*
+!.env.example

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Part Requests</title></head>
+<body class="popup">
+  <header class="masthead"><div class="brand-mark" aria-hidden="true">↗</div><div><p class="eyebrow">ROBOTICS / PROCUREMENT</p><h1>Part Requests</h1></div><button id="settings" class="icon-button" aria-label="Open settings" title="Settings">⚙</button></header>
+  <main>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <section id="loading" class="empty"><span class="pulse"></span><h2>Reading this product</h2><p>Checking the selected item and its options.</p></section>
+    <section id="unsupported" class="empty" hidden><div class="empty-icon">↗</div><h2>Open a supported store</h2><p>V1 captures individual products from your team's 20 named vendors.</p><details><summary>Supported stores</summary><ul id="vendor-list" class="vendor-list"></ul></details></section>
+    <section id="not-product" class="empty" hidden><div class="empty-icon">⌕</div><h2>Open one specific product</h2><p id="capture-explanation"></p></section>
+    <section id="setup" class="setup-banner" hidden><strong>One-time setup needed</strong><p>Connect the ordering database and choose your team and recipient.</p><button id="connect" class="secondary">Open settings</button></section>
+    <section id="result" class="result" hidden><span class="eyebrow" id="result-label">REQUEST STATUS</span><h2 id="result-title"></h2><p id="result-message"></p><a id="notion-link" class="primary link-button" target="_blank" rel="noopener noreferrer" hidden>Open in Notion ↗</a><div id="uncertain-check" hidden><label class="check"><input id="checked-notion" type="checkbox">I checked Notion and this request was not created.</label></div><button id="retry" class="secondary" hidden>Review and retry</button><button id="new-request" class="secondary" hidden>New request</button></section>
+    <form id="request-form" novalidate hidden>
+      <div class="section-heading"><span class="eyebrow">REVIEW REQUEST</span><span id="vendor" class="badge"></span><button id="submit" type="submit" class="primary">Create request <span aria-hidden="true">↗</span></button></div>
+      <ul id="validation" class="validation" role="alert" hidden></ul>
+      <ul id="capture-issues" class="hints" hidden></ul>
+      <label for="description">Item description</label><textarea id="description" rows="2" maxlength="2000"></textarea>
+      <div class="grid grid-3"><div><label for="status">Request status</label><select id="status"><option>NORMAL Request</option><option>Incomplete Request</option></select></div><div><label for="team">Team</label><select id="team"></select></div><div><label for="recipient">Orderer / recipient</label><select id="recipient"></select></div></div>
+      <div class="grid grid-wide-first"><div><label for="url">Product URL</label><input id="url" type="url" maxlength="2000" autocomplete="off" spellcheck="false"></div><div><label for="sku">SKU <span class="optional">optional</span></label><input id="sku" maxlength="2000" autocomplete="off"></div></div>
+      <div class="grid grid-3"><div><label for="quantity">Quantity</label><input id="quantity" type="number" step="any" min="0.000001" inputmode="decimal"></div><div><label for="price">Unit price <span class="optional">USD</span></label><div class="money-input"><span>$</span><input id="price" type="number" step="any" min="0" inputmode="decimal"></div></div><div><span class="field-label">Estimated total</span><div class="total"><strong id="total">$0.00</strong></div></div></div>
+      <p class="field-help">Quantity is units or packs sold at this price. The total excludes shipping and tax.</p>
+      <label id="currency-row" class="check" hidden><input id="currency-confirmed" type="checkbox">I entered the unit price in USD.</label>
+      <div class="actions"><button id="discard" type="button" class="quiet">Discard</button><p class="footnote">Creates a Notion request for your coach to order.</p></div>
+    </form>
+  </main>
+  <script type="module" src="/src/popup.ts"></script>
+</body></html>
