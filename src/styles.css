@@ -231,6 +231,8 @@ html[data-kind="popup"] { font-size: 16px; }
 .x-result-counts { margin-top: var(--space-2); }
 .x-result-action { margin-top: var(--space-3); }
 .x-result-stop { margin: var(--space-2) 0 0; }
+.x-result-changed { border-left: 4px solid var(--ui-warning); }
+.x-result-changed h3, .x-result-changed small { color: inherit; }
 .x-mark { font-weight: 800; text-align: center; }
 .x-mark[data-tone="success"] { color: var(--ui-success); }
 .x-mark[data-tone="warning"] { color: var(--ui-warning); }

@@ -44,7 +44,16 @@ export function createStores() {
       s.cart.set(id, s.mode === 'double' ? held + quantity * 2 : next);
       return json(route, { items: [{ id, quantity }] });
     }
+    // What AndyMark's cart page was seen doing by itself. The extension has no such step, so `pageUpdate` entries come only from the page's script below.
+    if (url.pathname === '/cart/update.js' && request.method() === 'POST') {
+      const { updates } = request.postDataJSON();
+      note('wcp', request, { pageUpdate: true });
+      s.cart.set([...s.cart.keys()][0], updates[0]);
+      return json(route, { items: [] });
+    }
     note('wcp', request);
+    if (url.pathname === '/cart' && s.mode === 'wall-after-add' && s.cart.size) return html(route, CHALLENGE);
+    if (url.pathname === '/cart' && s.mode === 'raises-on-page' && s.cart.size) return html(route, page('Your cart', '<h1>Your cart</h1>', `setTimeout(() => fetch('/cart/update.js', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates: [25] }) }), 1000);`));
     if (url.pathname === '/cart.js') {
       if (s.mode === 'block-read') return route.fulfill({ status: 429, contentType: 'text/html', body: 'Too many requests' });
       if (s.mode === 'challenge-read') return route.fulfill({ status: 200, contentType: 'text/html', body: CHALLENGE });

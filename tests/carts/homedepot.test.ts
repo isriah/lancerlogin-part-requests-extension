@@ -129,7 +129,7 @@ describe('Home Depot: a build', () => {
     expect(log.adds).toEqual([3]);
     expect(log).toMatchObject({ rec: 0, upsell: 0, checkout: 0 });
     expect(result.items[0]).toMatchObject({ outcome: 'flagged', confirmed: true, message: 'Home Depot\'s selected choice was kept: Delivery. Check it in the cart.' });
-    expect(log.gotos).toEqual(['https://www.homedepot.com/cart', LINK, 'https://www.homedepot.com/cart']);
+    expect(log.gotos).toEqual(['https://www.homedepot.com/cart', LINK, 'https://www.homedepot.com/cart', 'https://www.homedepot.com/cart']);
   });
   it('names a preselected pickup too, and clicks neither tile', async () => {
     const tiles = '<button data-testid="deliveryTile" aria-pressed="false">Delivery</button><button data-testid="pickupTile" aria-pressed="true">Pickup</button>';

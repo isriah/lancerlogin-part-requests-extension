@@ -168,7 +168,7 @@ describe('Ali Express: a build', () => {
     expect(cart.get(WIRE)).toBe(2);
     expect(log).toMatchObject({ buy: 0, checkout: 0, ticks: 0 });
     expect(result.items[0]).toMatchObject({ outcome: 'added', confirmed: true });
-    expect(log.gotos).toEqual([LISTING, 'https://www.aliexpress.us/p/shoppingcart/index.html', LISTING, 'https://www.aliexpress.us/p/shoppingcart/index.html']);
+    expect(log.gotos).toEqual([LISTING, 'https://www.aliexpress.us/p/shoppingcart/index.html', LISTING, 'https://www.aliexpress.us/p/shoppingcart/index.html', 'https://www.aliexpress.us/p/shoppingcart/index.html']);
   });
   it('goes to the .us listing whichever site the link was saved from', async () => {
     const { log, tab } = fakeSite();

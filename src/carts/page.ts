@@ -6,7 +6,7 @@ import { el, errorText, notice, send, showUpdateNotice, UiError } from '../ui';
 import { ChromeStoreTab } from './chrome-tab';
 import { allStoreOrigins, OTHER_STORE } from './registry';
 import { buildStore, checklistResult, marksFor, stopMessage, type ItemResult, type StoreResult } from './runner';
-import { paceMs } from './safety';
+import { CART_SETTLE_MS, paceMs } from './safety';
 import { groupOrders, isTicked, summarize, type OrderRow, type StoreGroup } from './selection';
 import { BADGE_LABEL, StoreStop, type StoreBadge, type StoreMethod } from './store-method';
 import type { CartMark, MarkInput, MarksOutcome, OrdersList, OrdersOutcome } from './types';
@@ -318,8 +318,10 @@ async function build(): Promise<void> {
       tab = await ChromeStoreTab.open(store, !!steps.foreground);
       result = await buildStore(store, steps, orders, tab, {
         pause: () => sleep(paceMs()),
+        settle: () => sleep(CART_SETTLE_MS),
         shouldStop: () => stopRequested,
         onProgress: (done, total) => { el('selection-count').textContent = `Building ${store.label}: ${Math.min(done + 1, total)} of ${total}`; },
+        onFinalCheck: () => { el('selection-count').textContent = `Building ${store.label}: checking the cart once more`; },
       });
     } catch (error) {
       const reason = error instanceof StoreStop ? error.reason : 'unexpected';
@@ -328,7 +330,7 @@ async function build(): Promise<void> {
       await tab?.close();
     }
     results.push(result);
-    // After each store, so a mark is never lost to a later store's trouble.
+    // After each store's final read, so a line the store changed is never marked, and before the next store, so a mark is never lost to a later store's trouble.
     const marks = marksFor(result);
     if (marks.length) markProblem = await sendMarks(marks) ?? markProblem;
   }
@@ -348,7 +350,8 @@ const resultGroup = (title: string, items: HTMLElement[]): HTMLElement => h('div
 function resultItem(result: ItemResult): HTMLElement {
   const marks: Record<string, [string, string]> = { added: ['✓', 'success'], flagged: ['!', 'warning'], failed: ['✕', 'error'], checklist: ['☐', ''] };
   const [mark, tone] = marks[result.outcome];
-  const title = h('span', {}, `${result.order.description ?? 'No description'}, qty ${result.order.quantity ?? '?'}`);
+  const changed = result.storeChanged;
+  const title = h('span', {}, `${result.order.description ?? 'No description'}, ${changed ? `you asked for ${changed.asked}, the cart holds ${changed.holds}` : `qty ${result.order.quantity ?? '?'}`}`);
   if ((result.outcome === 'failed' || result.outcome === 'checklist') && result.order.productUrl) title.append(' ', link(result.order.productUrl, 'Open product ↗'));
   if (result.message) title.append(h('small', {}, result.message));
   return h('li', { }, h('span', { className: 'x-mark', tone, ariaHidden: 'true' }, mark), title);
@@ -356,18 +359,27 @@ function resultItem(result: ItemResult): HTMLElement {
 function storeCard(result: StoreResult): HTMLElement {
   const of = (outcome: string) => result.items.filter(item => item.outcome === outcome);
   const [added, flagged, failed, checklist] = ['added', 'flagged', 'failed', 'checklist'].map(of);
+  const changed = flagged.filter(item => item.storeChanged);
   const counts = h('div', { className: 'x-actions x-result-counts' });
   if (added.length) counts.append(pill(`✓ ${added.length} added`, 'success'));
   if (flagged.length) counts.append(pill(`! ${flagged.length} flagged`, 'warning'));
+  if (changed.length) counts.append(pill(`! ${changed.length} changed by the store`, 'warning'));
   if (failed.length) counts.append(pill(`✕ ${failed.length} failed`, 'error'));
   if (checklist.length) counts.append(pill(`${checklist.length} to add yourself`));
   const card = h('section', { className: 'ui-card' }, h('div', { className: 'x-card-head' }, h('h2', {}, result.label), badge(result.badge, result.noAccess ? 'No store access, so this is a list for you to add yourself' : '')), counts);
   card.dataset.result = result.storeId;
   if (result.stopped) card.append(h('p', { className: 'x-tone x-result-stop', tone: 'warning' }, result.stopped.message));
   if (result.noAccess) card.append(h('p', { className: 'x-help x-result-stop' }, 'This extension has no access to this store, so nothing was tried.'));
+  if (result.finalCheckNote) card.append(h('p', { className: 'x-tone x-result-stop', tone: 'warning' }, result.finalCheckNote));
   if (result.resultNote && (added.length || flagged.length)) card.append(h('p', { className: 'x-help x-result-stop' }, result.resultNote));
+  if (changed.length) {
+    const group = resultGroup('The store changed the quantity, check before ordering', changed.map(resultItem));
+    group.classList.add('x-tone', 'x-result-changed');
+    group.dataset.tone = 'warning';
+    card.append(group);
+  }
   if (added.length) card.append(resultGroup('Added', added.map(resultItem)));
-  if (flagged.length) card.append(resultGroup('Flagged, check in the cart', flagged.map(resultItem)));
+  if (flagged.length > changed.length) card.append(resultGroup('Flagged, check in the cart', flagged.filter(item => !item.storeChanged).map(resultItem)));
   if (failed.length) card.append(resultGroup('Failed, not in the cart', failed.map(resultItem)));
   if (checklist.length) card.append(resultGroup('Add these yourself', checklist.map(resultItem)));
   if (result.cartUrl) {
@@ -386,7 +398,8 @@ function renderResults(): void {
   const count = (outcome: string) => results.reduce((sum, result) => sum + result.items.filter(item => item.outcome === outcome).length, 0);
   const today = new Date(builtAt).toDateString() === new Date().toDateString();
   el('results-when').textContent = `Built ${today ? 'today' : shortDate(builtAt)} at ${clockTime(builtAt)}`;
-  el('results-counts').textContent = `${count('added')} added, ${count('flagged')} flagged, ${count('failed')} failed, ${count('checklist')} to add yourself`;
+  const changed = results.reduce((sum, result) => sum + result.items.filter(item => item.storeChanged).length, 0);
+  el('results-counts').textContent = `${count('added')} added, ${count('flagged')} flagged, ${count('failed')} failed, ${count('checklist')} to add yourself${changed ? `. ${changed} changed by the store: check before ordering` : ''}`;
   el('results').replaceChildren(...results.map(storeCard));
 }
 el('back').addEventListener('click', () => { void load(); });

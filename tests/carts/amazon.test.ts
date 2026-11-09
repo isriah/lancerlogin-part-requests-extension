@@ -215,7 +215,7 @@ describe('a whole build', () => {
     expect(result.items[0]).toMatchObject({ outcome: 'added', confirmed: true });
     expect(sim.cart.get(ASIN)).toBe(2);
     expect(sim.presses()).toBe(1);
-    expect(sim.visits).toEqual([amazon.cartUrl, amazonAddLink(ASIN, 2), amazon.cartUrl]);
+    expect(sim.visits).toEqual([amazon.cartUrl, amazonAddLink(ASIN, 2), amazon.cartUrl, amazon.cartUrl]);
     expect(sim.visits.every(url => allowedInTab(amazon, url))).toBe(true);
   });
   it('works when the link adds with no confirm page', async () => {

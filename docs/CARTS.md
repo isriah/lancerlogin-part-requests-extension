@@ -8,7 +8,7 @@ The plugin's README has the API (`GET /orders`, `POST /orders/marks`). `src/clie
 
 1. **Options** has the Carts switch, off by default. Turning it on asks Chrome for every built store's origin, from that click. Saying no still turns Carts on, as a checklist. Turning it off, or unpairing, gives the origins back.
 2. **`carts.html`** opens as a full tab from the popup or Options. It asks the worker for the orders, because the device key stays in the worker. The page polls by itself for `refreshing`, for `202` and for rate limits, a limited number of times.
-3. **Build carts** runs in that page, never in the service worker. For each store with ticked items, one at a time, it opens a new tab at the store's start page, works through one line at a time, then closes the tab. Each store's confirmed lines are marked before the next store starts.
+3. **Build carts** runs in that page, never in the service worker. For each store with ticked items, one at a time, it opens a new tab at the store's start page, works through one line at a time, then, if anything was sent, reads the cart one last time once its page has settled, closes the tab, and marks what's still confirmed before the next store starts.
 
 Closing the Carts tab ends a build. A second build is always safe, because every line starts with a read.
 
@@ -23,7 +23,8 @@ A store's file can't get around these.
 | One store and one line at a time, at a modest pace | `page.ts` and `runner.ts`, with `paceMs` |
 | Read before adding, so a retry never doubles | `buildStore` in `runner.ts` |
 | Read back after adding, and report short stock or any mismatch | `buildStore` |
-| Mark only what a read-back confirmed | `marksFor` in `runner.ts`. Marks hold an order's ID and its quantity, nothing else |
+| After the lines, read once more with the cart page settled. Report a change, and never change it back | `recheckLines` in `runner.ts`, with `CART_SETTLE_MS` in `safety.ts` |
+| Mark only what a read-back confirmed and the final read didn't change, and only after that read | `marksFor` in `runner.ts`, called by `page.ts` once `buildStore` returns. Marks hold an order's ID and its quantity, nothing else |
 | Cart contents stay in the store's tab, apart from the lines asked for | Each store's `readCart` filters inside the injected function |
 | No cookies, no changed user agent, no false identification | The manifest has no such permission. A unit test checks the sources |
 
@@ -42,6 +43,19 @@ The target is what this run needs the cart to hold: the requested quantity, plus
 | Unchanged | Failed, with the store's own message when it gave one | No |
 | Above the target, or went down | Flagged: quantity mismatch | No |
 | Sent, then couldn't read back | Flagged, and the store stops | No |
+| Any of these, then the final read differs | Flagged: the store changed it, naming both numbers | No |
+| Any of these, then the final read couldn't run | The earlier result stands, with a note on the store's card | As before |
+
+### The final read
+
+A store's own cart page can change a line after the read-back, as AndyMark's does. So once a store's lines are done, if at least one was sent, `buildStore` loads the store's `cartUrl` (only if `allowedInTab` passes), waits `CART_SETTLE_MS` (3 seconds), and reads every line this build handled with one `readCart`. It compares each with the last read of that line.
+
+- **A line that moved** is flagged and loses its mark: "The store changed this to 25 after it was added; you asked for 1. Check the cart before ordering." The results card puts these in their own highlighted group, and counts them in the card's pills and the summary. The higher number is only ever reported. Nothing is sent to bring it back.
+- **A wall or an error during this read** keeps the earlier results and their marks, and adds a note to the card that the final check couldn't run. It's never a failure, and nothing is retried.
+- **A wall during the lines** ends that store's pages, so this read isn't tried, and the same note appears if anything was sent. **Stop** doesn't skip it, since it sends nothing and the lines already sent still need it.
+- **Nothing sent** means no final read, so a retry that adds nothing costs no extra time. Stores with no steps never get here.
+- **One load, one wait.** If the store's own `readCart` loaded `cartUrl` and nothing has navigated since, the final read doesn't load it first, and just waits. `readCart` then loads it again itself, seeing whatever the first load's scripts did. The runner sees this from the addresses `readCart` asks for, so a store declares nothing.
+- **No store skips it outright**, because none yet reads a page that has had this long. Pololu reads about 300 ms after a load, McMaster reads the page showing as soon as it recognizes it, and Home Depot and Ali Express read once rows have held still for 1.5 seconds. A store that read only after 3 seconds could skip it, but that wait would then be on every read of every line. The cost as it is: about 3 seconds and one page load per store.
 
 This differs from the approved mockup in one way. The mockup says "Your cart has 2 of these. Building adds 4 more," ending at 6. Adds accumulate and a retry can't be told from an earlier cart, so this adds only the difference, ending at 4, and flags it. The row can't warn ahead of the build either, because no store is read before the click.
 
@@ -79,7 +93,7 @@ export const example: StoreMethod = {
 - **Injected functions** are serialized by Chrome. They have no imports and use nothing from outside their own body and arguments. They run in the isolated world. Keep them exported so a unit test can call them.
 - **`resolveLine`** throws `LineProblem` when this one order can't be added, and the store carries on. Set `available: false` to fail a line without trying.
 - **`resultNote`** on a store is one line shown in its results once anything has been added, for something true of its cart as a whole.
-- **`readCart`** filters inside the injected function, and hands back only the keys asked for. Compare keys the way the store writes them. Leave out a key that isn't in the cart. Return `{ kind: 'stop', reason, detail }` from anything that isn't the page you expected, and never guess zero from a page you can't recognize.
+- **`readCart`** filters inside the injected function, and hands back only the keys asked for. It also gets called with several keys for the final read, from the store's `cartUrl` page. Compare keys the way the store writes them. Leave out a key that isn't in the cart. Return `{ kind: 'stop', reason, detail }` from anything that isn't the page you expected, and never guess zero from a page you can't recognize.
 - **`addLine`** asks once. It doesn't decide the outcome: the runner reads back. Throw `LineProblem` with the store's own words for a refusal, and read back still happens. Add `notSent: true` to a stop only when nothing can have reached the store.
 - **Pages that draw themselves after loading:** the check after each load runs too soon to see a wall they draw later. Wait in your injected function for the page you expect or a wall, whichever comes first, using what a person can see (`innerText`), as `mcmasterReadCart` does. Text in scripts or hidden markup misled that check once.
 - **Page controls:** only ever act on the one control you named, by its exact label. Refuse anything whose label or address mentions checkout, buy, pay or placing an order. Set `foreground: true` if a page won't work behind other tabs.
@@ -100,7 +114,7 @@ All tested 2026-11-09, live, in throwaway Edge profiles that were deleted afterw
 | WCP | Direct | `/products/<handle>.js`, `/cart.js`, `POST /cart/add.js`, `/cart.js` | Built extension | Real add confirmed, quantity 2, with a saved `?variant=` and a confirmed SKU. Retry added nothing. |
 | McMaster | Item by item | Order page paste, written from the research | Built extension | **Unproven.** A fresh profile gets a login wall, and it stopped there. Nothing was typed or added. |
 | Ambrosia Filament | Direct | Shared Shopify method | Built extension | Real add confirmed, quantity 1, SKU `AMB4605STAREF`. Retry added nothing. An earlier script run got `429` from rapid requests outside a browser. |
-| AndyMark | Direct | Shopify, with a required SKU matched inside the link's product, because SKUs repeat across products | Built extension | **Add and retry work, but the quantity doesn't hold.** Quantity 1 read back as 1, and the retry added nothing, but the store's own `/cart` page then raised the line to 25. See below. Bundles and a real repeated SKU are synthetic only. |
+| AndyMark | Direct | Shopify, with a required SKU matched inside the link's product, because SKUs repeat across products | Built extension | **Add and retry work, but the store can change the quantity.** Quantity 1 of `am-1775` read back as 1, and the store's own `/cart` page then raised the line to 25. The final read flagged that in the same build, with no mark and no navigation to checkout, and the retry added nothing. See below. Bundles and a real repeated SKU are synthetic only. |
 | CTRE | Direct | Shared Shopify method | Built extension | Real add confirmed, quantity 1, SKU `WCP-1508`. Retry added nothing. An "(8-Pack)" item was not added live. |
 | FerrulesDirect | Direct | Shared Shopify method | Built extension | Real add confirmed, quantity 1, SKU `FDSPP6`. Retry added nothing. |
 | SDS | Direct | Shopify, with the variant from the saved link or an exact title in the description, because its variants have no SKUs | Built extension | Real add confirmed, quantity 1, from a saved `?variant=`. Retry added nothing. Choosing by title on the real MK5n module was read-only, from a script. |
@@ -127,7 +141,11 @@ Short stock, a store's refusal, walls other than those named above and the check
 - **Ali Express's cart rows** are matched on both the listing and the option, because one listing can hold several options in a cart. A row of the listing that names none of its known options could be this line written differently, so it stops the store instead of reading as zero.
 - **Ali Express ticks a newly added item for checkout by itself.** Nothing here touches those ticks, and the results say so.
 - **Ali Express is USD only.** A price that isn't `$` or `US $` fails the line, checked before reading the cart and again once the option is selected. Builds always use the `.us` listing, whichever site the link was saved from.
-- **AndyMark's cart page can raise a quantity on its own.** Seen on `am-1775`, a $0.05 screw whose product data says minimum 1: `/cart/add.js` accepted quantity 1 and `/cart.js` read 1. About a second after `/cart` next loaded, the page's own script sent `/cart/update.js` with `{"updates":[25]}`, and the cart held 25. This code never asks for that. A build reads back before the raise, so it says "added" and marks 1. A later build flags "holds 25, more than the 1 requested". Which items do this, and whether a build should wait for it, are open.
+- **AndyMark's cart page can raise a quantity on its own.** Seen on `am-1775`, a $0.05 screw: `/cart/add.js` accepted quantity 1 and `/cart.js` read 1. About a second after `/cart` next loaded, the page's own script sent `/cart/update.js` with `{"updates":[25]}`, and the cart held 25. This code never asks for that. The final read now catches it in the same build: the line is flagged, naming 25 and 1, with no mark. The extension doesn't change it back, because that's for the person to decide in the cart. A later build adds nothing and says the cart already holds more than was asked for. Whether to warn before adding is the owner's call.
+  - **The cause** is AndyMark's theme. `roundAndApplyAutomaticCodes` in `empire.min.js` runs when the cart page loads and sends every line through `max(floor(quantity / n) * n, n)`, where `n` is that variant's `orderedInQuantity`, read from `#variant_metafield_data` on the page. So 1 becomes 25, and 30 would go down to 25. It then posts `/cart/update.js` once for the quantities and once for discount codes.
+  - **It depends on the item's own setting**, not its price or the cart's total: neither is in that code. `am-1775` at $0.05 went to 25 ($1.25), and `am-1552_black` at $0.08 went to 100 ($8.00), in the same cart.
+  - **How often:** 181 of 1,970 products carry the tag `Ordered In Quantity Higher Than One`: 91 of 125 under $0.25, 86 of 219 from $0.25 to $1, 4 of 447 from $1 to $5, and none of 1,179 at $5 or more. The tag misses some, because `am-1775` doesn't have it. In a read-only sample of 40 product pages, 36 showed a value. The 9 above 1 were all under $1 (10 or 25), and the 21 at $1 or more all showed 1. It's mostly small hardware, which is a large share of what a team orders. The rest of the catalog isn't checked.
+  - **It can be known before adding:** each product page has the same `#variant_metafield_data`. The extension doesn't read it today. A retry of a line rounded down (asked 30, holds 25) adds the difference again, and the cart page rounds it again, so that line stays flagged.
 - **Swyft keeps a separate cart on each host.** `www.swyftrobotics.com` doesn't redirect to `swyftrobotics.com`, and each keeps its own cart in the browser. Builds and the "Open Swyft cart" link always use `swyftrobotics.com`, so lines someone added on `www.` won't show there, and a build can't see them.
 - **Swyft's read-back is the browser's copy of the cart.** A difference on the server from any cause other than the race above wouldn't show.
 - **Amazon's total:** `amazonReadCart` also hands the page the active cart's total unit count, to catch an add landing under another ASIN. It stays in memory and never goes to the plugin.
@@ -169,5 +187,5 @@ Use one cheap item, and remove it afterwards. Any mismatch below should stop the
    - **Walls:** does a robot check or sign-in stop the store? How often does one appear? Does a saved `.com` link or `sku_id` cause any trouble?
    - Remove the item afterwards with the row's trash icon and "Remove". That's by hand: nothing here removes anything.
 9. **Real sign-ins:** a signed-in account at the stores that passed signed out, to see that a saved cart reads back the same way.
-10. **AndyMark's raised quantity:** build a small screw, then open the AndyMark cart. Does it show 25, and does the site say why? Decide whether a build should wait for the page and report it as a mismatch. Until then, check AndyMark quantities in the cart.
+10. **AndyMark's raised quantity:** build a small screw, then open the AndyMark cart. Does it show 25, and does the site say why? The extension flags this in the results and doesn't change it back, so the quantity is the person's to fix in the cart before ordering. Decide whether the extension should also warn before adding such an item. Also decide whether a later build, which finds more in the cart than requested and adds nothing, should still mark the line. It does today, as the table above says.
 11. **Chrome itself:** these ran in Edge. Chrome 137 and newer ignores `--load-extension`, so automation can't load it there. Load `dist` by hand and repeat one store.

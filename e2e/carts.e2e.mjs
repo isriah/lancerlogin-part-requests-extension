@@ -37,7 +37,7 @@ writeFileSync(join(extension, 'manifest.json'), JSON.stringify({ ...productionMa
 const DEVICE_KEY = 'e2eFakeDeviceKey00000000000000000000000000x'.slice(0, 43);
 const NOTION = 'https://app.notion.com/p/synthetic';
 const api = {
-  cartsEnabled: true, orders: [], marks: [], marksCalls: [], ordersCalls: [], script: [], marksScript: [], revoked: false, cookies: [], bodies: [],
+  cartsEnabled: true, orders: [], marks: [], marksCalls: [], marksAt: [], ordersCalls: [], script: [], marksScript: [], revoked: false, cookies: [], bodies: [],
   list: {},
 };
 const order = (id, extra) => ({ id, url: `${NOTION}-${id}`, description: `Test item ${id}`, vendor: null, urlVendor: null, sku: null, productUrl: null, quantity: 1, unitPrice: 10, status: 'NORMAL Request', statusGroup: 'NORMAL', teams: ['Test Team One'], requesters: ['Test Student A'], cartMarks: [], ...extra });
@@ -77,6 +77,7 @@ async function plugin(route) {
   if (name === '/orders/marks') {
     const body = request.postDataJSON();
     api.marksCalls.push(body);
+    api.marksAt.push({ at: Date.now(), orderIds: body.marks.map(mark => mark.orderId) });
     const scripted = api.marksScript.shift();
     if (scripted) return reply(scripted.body, scripted.status, scripted.headers ?? {});
     if (!api.cartsEnabled) return reply({ error: 'An Admin turned Carts off for this team.', code: 'carts_disabled' }, 403);
@@ -300,7 +301,7 @@ try {
   // ---- A build across every kind of store.
   const build = async page => { await page.click('#build'); await page.waitForSelector('#results-view:not([hidden])', { timeout: 120000 }); };
   const cardText = (page, store) => page.textContent(`[data-result="${store}"]`);
-  const fresh = () => { stores.state.reset(); api.marks.length = 0; api.marksCalls.length = 0; api.bodies.length = 0; };
+  const fresh = () => { stores.state.reset(); api.marks.length = 0; api.marksCalls.length = 0; api.marksAt.length = 0; api.bodies.length = 0; };
   fresh();
   api.orders = fullList();
   carts = await openCarts();
@@ -317,7 +318,9 @@ try {
   const wcpAdd = stores.state.adds().filter(a => a.store === 'wcp');
   check('WCP: one line to /cart/add.js', wcpAdd.length === 1 && wcpAdd[0].url.endsWith('/cart/add.js') && wcpAdd[0].body.items.length === 1 && wcpAdd[0].body.items[0].quantity === 4, wcpAdd);
   const wcpLog = stores.state.log.filter(a => a.store === 'wcp').map(a => new URL(a.url).pathname).join(' ');
-  check('WCP: read the product, read the cart, added, read the cart', wcpLog === '/cart /products/test-hex-shaft.js /cart.js /cart/add.js /cart.js', wcpLog);
+  check('WCP: read the product, read the cart, added, read the cart, loaded the cart page, read the cart', wcpLog === '/cart /products/test-hex-shaft.js /cart.js /cart/add.js /cart.js /cart /cart.js', wcpLog);
+  const lastWcpRead = stores.state.log.filter(a => a.store === 'wcp' && new URL(a.url).pathname === '/cart.js').at(-1).at;
+  check('Final read: the store\'s marks came after it', api.marksAt.find(call => call.orderIds.includes('w1'))?.at >= lastWcpRead, { lastWcpRead, marksAt: api.marksAt });
   check('REV: added with action=add', stores.state.rev.cart.get('TEST-3001') === 1 && stores.state.adds().filter(a => a.store === 'rev').every(a => /action=add&sku=TEST-3001&qty=1/.test(a.url)));
   check('Pololu: Quick add line, read back, and the price change is flagged', stores.state.pololu.cart.get('2136') === 2 && stores.state.adds().some(a => a.store === 'pololu' && a.body === '2136,2') && /Price changed: requested at \$14\.85, store shows \$15\.95/.test(await cardText(carts, 'pololu')), await cardText(carts, 'pololu'));
   check('McMaster: pasted one line, pressed ADD, read back', stores.state.mcmaster.cart.get('91251A537') === 2 && /1 added/.test(await cardText(carts, 'mcmaster')), await cardText(carts, 'mcmaster'));
@@ -397,6 +400,37 @@ try {
   await build(carts);
   check('Read-back mismatch: reported plainly', /Quantity mismatch: the cart should hold 2, but it holds 4/.test(await cardText(carts, 'wcp')), await cardText(carts, 'wcp'));
   check('Read-back mismatch: no mark', api.marks.length === 0 && api.marksCalls.length === 0, api.marksCalls);
+  await carts.close();
+
+  // A store's own cart page changes a quantity after the read-back, as AndyMark's did.
+  fresh();
+  stores.state.wcp.mode = 'raises-on-page';
+  api.orders = [wcpOrder('w1', { quantity: 1 })];
+  carts = await openCarts();
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  await build(carts);
+  await shot(carts, 'results-store-changed');
+  const raisedCard = await cardText(carts, 'wcp');
+  check('Store raised it: flagged, naming both numbers', /The store changed this to 25 after it was added; you asked for 1\. Check the cart before ordering\./.test(raisedCard) && /1 changed by the store/.test(raisedCard) && /you asked for 1, the cart holds 25/.test(raisedCard), raisedCard);
+  check('Store raised it: stands out in the card and the summary', await carts.isVisible('[data-result="wcp"] .x-result-changed') && /1 changed by the store/.test(await carts.textContent('#results-counts')), await carts.textContent('#results-counts'));
+  check('Store raised it: one add, the store\'s own raise, and the extension never changed it back', stores.state.adds().length === 1 && stores.state.log.filter(a => a.pageUpdate).length >= 1 && stores.state.wcp.cart.get(1001) === 25, stores.state.log.map(a => new URL(a.url).pathname));
+  check('Store raised it: no mark', api.marks.length === 0 && api.marksCalls.length === 0, api.marksCalls);
+  await carts.click('#back');
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  await build(carts);
+  check('Store raised it: a second build says plainly the cart holds more, and adds nothing', /The cart already holds 25, more than the 1 you asked for\. Nothing was added/.test(await cardText(carts, 'wcp')) && stores.state.adds().length === 1 && stores.state.wcp.cart.get(1001) === 25, await cardText(carts, 'wcp'));
+  await carts.close();
+
+  // A wall at the final read is not a failed build.
+  fresh();
+  stores.state.wcp.mode = 'wall-after-add';
+  api.orders = [wcpOrder('w1', { quantity: 2 })];
+  carts = await openCarts();
+  await carts.waitForSelector('#orders-view:not([hidden])');
+  await build(carts);
+  const walledCard = await cardText(carts, 'wcp');
+  check('Wall at the final read: keeps the result and says the check couldn\'t run', /1 added/.test(walledCard) && /final check of this cart couldn't run, because WCP showed a CAPTCHA or bot check/.test(walledCard) && stores.state.adds().length === 1, walledCard);
+  check('Wall at the final read: the read-back\'s mark stands', api.marks.length === 1 && api.marks[0].orderId === 'w1', api.marks);
   await carts.close();
 
   fresh();

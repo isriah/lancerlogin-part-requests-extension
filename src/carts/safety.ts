@@ -19,3 +19,5 @@ export function isOnStore(store: Pick<StoreMethod, 'hosts'>, raw: string): boole
 export const allowedInTab = (store: Pick<StoreMethod, 'hosts'>, raw: string): boolean => isOnStore(store, raw) && !isForbiddenUrl(raw);
 /** A quiet pause between one line and the next, so a store sees one person's pace. */
 export const paceMs = (random = Math.random): number => 1200 + Math.floor(random() * 1000);
+/** How long a store's cart page gets to run its own scripts before the final read. AndyMark's raised a quantity about a second after loading. */
+export const CART_SETTLE_MS = 3000;

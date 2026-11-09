@@ -326,7 +326,7 @@ describe('whole builds, with the runner', () => {
     expect(result.items[0]).toMatchObject({ outcome: 'added', confirmed: true });
     expect(store.cart!.get('Splice-1614')).toBe(2);
     expect(touched()).toEqual(['commit']);
-    expect(seen).toEqual(['/cart', '/cart/quick-entry', '/cart']);
+    expect(seen).toEqual(['/cart', '/cart/quick-entry', '/cart', '/cart']);
   });
   it('a retry doesn\'t double', async () => {
     const store: Synthetic = { catalog: CATALOG };

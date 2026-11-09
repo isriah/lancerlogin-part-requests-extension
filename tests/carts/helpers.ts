@@ -35,5 +35,5 @@ export function fakeStore(cart: Map<string, number>, onAdd?: (key: string, quant
   const store: StoreMethod = { id: 'fake', label: 'Fake', badge: 'direct', badgeHelp: '', origins: ['https://fake.example.test/*'], hosts: ['fake.example.test'], cartUrl: 'https://fake.example.test/cart', requiredFields: ['sku', 'quantity'], steps };
   return { store, steps, adds, reads };
 }
-export const options = { pause: async () => undefined, shouldStop: () => false };
+export const options = { pause: async () => undefined, settle: async () => undefined, shouldStop: () => false };
 export { stopIf };
