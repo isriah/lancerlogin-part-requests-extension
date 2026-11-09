@@ -183,6 +183,12 @@ html[data-kind="popup"] { font-size: 16px; }
 .x-empty p { margin: 0; max-width: 34rem; }
 
 
+/* Options: one card, with its sections side by side so everything fits a laptop screen until a details section is opened. */
+.x-page .x-settings-card { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: var(--space-4); align-items: stretch; }
+.x-settings-section { min-width: 0; }
+.x-settings-section + .x-settings-section { padding-left: var(--space-4); border-left: 1px solid var(--ui-border); }
+.x-settings-subsection { padding-top: var(--space-3); border-top: 1px solid var(--ui-border); }
+
 /* Carts, from the approved mockup. */
 .x-sticky { position: sticky; top: var(--space-2); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4); border: 1px solid var(--ui-border); border-radius: var(--radius-card); background: var(--ui-surface); }
 .x-sticky strong { font-size: var(--text-small); }
@@ -278,5 +284,8 @@ p.x-tone { margin: 0; }
 /* The update notice never blocks anything. It gives way to whatever needs acting on now, so the form still fits. */
 html:has(#notice:not([hidden])) #update-notice,html:has(#setup:not([hidden])) #update-notice,html:has(#result:not([hidden])) #update-notice,html:has(#validation-box:not([hidden])) #update-notice,html:has(#repeat-warning:not([hidden])) #update-notice,html:has(#express-reasons-box:not([hidden])) #update-notice { display: none; }
 html[data-kind="page"] #update-notice { display: block; }
-@media (max-width: 900px) { .x-columns { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 900px) {
+  .x-columns,.x-page .x-settings-card { grid-template-columns: minmax(0,1fr); }
+  .x-settings-section + .x-settings-section { padding-left: 0; padding-top: var(--space-4); border-left: 0; border-top: 1px solid var(--ui-border); }
+}
 @media (max-width: 480px) { .x-page { padding-inline: var(--space-3); } }

@@ -279,6 +279,8 @@ try {
   check('Options: shows who, where and which device', /Test Student A/.test(await textOf(options, 'paired-member')) && (await textOf(options, 'paired-origin')) === new URL(SITE).host && (await textOf(options, 'paired-label')) === 'Test laptop');
   check('Options: PIN field is cleared', await options.evaluate(() => document.getElementById('pin').value === ''));
   check('Options: paired screen fits 1366x650', await fits(options, 650), await scrollHeight(options));
+  check('Options: one settings card, with every section inside it', await options.evaluate(() => document.querySelectorAll('.ui-card').length === 1 && ['pairing-title', 'defaults-title', 'settings-title', 'stores-title'].every(id => document.querySelector('.x-settings-card').contains(document.getElementById(id)))));
+  check('Options: no font license link, and the notices still ship', await options.evaluate(() => !document.querySelector('a[href*="THIRD_PARTY"]')) && readFileSync(join(root, 'dist', 'THIRD_PARTY_NOTICES.txt'), 'utf8').length > 0);
   check('Options: Unpair explains it frees a slot, and what happens offline', /frees one of your 5 device slots/.test(await textOf(options, 'paired-card')) && /an Admin may need to remove/.test(await textOf(options, 'paired-card')));
   check('Options: at the minimum version there is no update notice', !(await visible(options, '#update-notice')));
   await shot(options, 'pairing-paired');

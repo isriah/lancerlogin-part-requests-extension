@@ -167,6 +167,19 @@ try {
   if (realPrompt) check('Switch: every store origin came from that one click', (await access(options)).every(Boolean), await access(options));
   else await context.grantPermissions?.([]).catch(() => undefined);
   check('Options: Open Carts shows', await options.isVisible('#carts-open'));
+  await options.setViewportSize({ width: 1366, height: 650 });
+  await options.evaluate(() => { document.getElementById('notice').hidden = true; return document.fonts.ready; });
+  const sizes = () => options.evaluate(() => ({ tall: document.documentElement.scrollHeight, wide: document.documentElement.scrollWidth, cards: document.querySelectorAll('.ui-card').length, width: innerWidth }));
+  const closed = await sizes();
+  check('Options: one card, fitting 1366x650 with everything on and details collapsed', closed.cards === 1 && closed.tall <= 650 && closed.wide <= closed.width, closed);
+  if (shots) await options.screenshot({ path: join(shots, 'built-options-one-card.png') });
+  await options.evaluate(() => { document.querySelector('.settings-disclosure').open = true; });
+  const opened = await sizes();
+  check('Options: opening a details section may scroll, and never sideways', opened.wide <= opened.width, opened);
+  await options.evaluate(() => { document.querySelector('.settings-disclosure').open = false; });
+  await options.setViewportSize({ width: 375, height: 800 });
+  check('Options: no sideways scroll at phone width', await options.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await options.setViewportSize({ width: 1366, height: 860 });
 
   api.orders = fullList();
   const [fromOptions] = await Promise.all([context.waitForEvent('page'), options.click('#carts-open')]);

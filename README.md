@@ -80,6 +80,6 @@ npm run package
 
 `npm run check` runs tests and the production build. `npm run e2e` drives the built extension in a real browser. `npm run package` writes `release/robotics-part-requests-<version>.zip`, and refuses to package a build with test permissions. `npm run dev` serves the layouts locally, but extension APIs are available only after loading `dist` as an extension.
 
-See [setup and troubleshooting](docs/SETUP.md), [architecture and tests](docs/DEVELOPMENT.md), [Carts and adding a store](docs/CARTS.md), and [vendor maintenance](docs/VENDORS.md). Bundled font licenses are in [THIRD_PARTY_NOTICES.txt](public/THIRD_PARTY_NOTICES.txt), which ships inside the extension.
+See [setup and troubleshooting](docs/SETUP.md), [architecture and tests](docs/DEVELOPMENT.md), [Carts and adding a store](docs/CARTS.md), and [vendor maintenance](docs/VENDORS.md). Bundled font licenses are in [THIRD_PARTY_NOTICES.txt](public/THIRD_PARTY_NOTICES.txt). It ships inside the extension because the Open Font License requires that, and nothing in the UI links to it.
 
 Not included: unsupported stores, the Other vendor option, Chrome Web Store publication, creating RUSH/SLOW requests, bulk capture, actual purchases, and subsequent order management.

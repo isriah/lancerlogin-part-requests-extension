@@ -11,8 +11,8 @@
   <div id="notice" class="x-tone" data-tone="neutral" role="status" aria-live="polite" hidden></div>
   <p id="update-notice" class="x-tone" data-tone="warning" role="status" hidden><strong>Update available:</strong> <span id="update-text"></span> <a id="update-link" target="_blank" rel="noopener noreferrer" hidden>Get the update &#8599;</a></p>
   <p id="default-colors-notice" class="ui-status settings-notice" role="status" hidden>Using LancerLogin's default colors until this device is paired. Then it uses your team's.</p>
-  <main class="x-columns">
-    <section class="ui-card">
+  <main class="ui-card x-settings-card">
+    <section class="x-settings-section" aria-labelledby="pairing-title">
       <div class="x-card-head"><h2 id="pairing-title">Pair this device</h2><span id="pairing-state" class="status-pill ui-status pill-neutral">Not paired</span></div>
       <form id="pair-form" class="x-card-body">
         <p class="x-help">Run <code class="x-code">/ordering-pin</code> in your team's Discord server. The private reply gives you the site address and a PIN that works once and expires in 10 minutes.</p>
@@ -29,9 +29,9 @@
         <p class="x-help">Unpairing frees one of your 5 device slots and forgets the key on this computer. If the site can't be reached, it still unpairs here, and an Admin may need to remove the device. Drafts are kept.</p>
       </div>
     </section>
-    <div class="x-stack">
-      <section class="ui-card">
-        <div class="x-card-head"><h2>Your defaults</h2></div>
+    <div class="x-settings-section x-stack">
+      <section aria-labelledby="defaults-title">
+        <div class="x-card-head"><h2 id="defaults-title">Your defaults</h2></div>
         <div id="defaults-placeholder" class="x-card-body"><p class="x-help x-help-large">Pair this device first. Your team and your Notion name come from your team's site.</p></div>
         <div id="defaults-card" hidden>
           <form id="defaults-form" class="x-card-body">
@@ -43,10 +43,10 @@
           </form>
         </div>
       </section>
-      <section class="ui-card"><details class="settings-disclosure"><summary>Capture from 20 stores</summary><p class="x-help">Open one product, choose its options and click the extension. Other stores, cart pages and bulk capture aren't supported.</p><ul id="vendor-list" class="x-vendor-list"></ul></details></section>
+      <section class="x-settings-subsection" aria-labelledby="stores-title"><div class="x-card-head"><h2 id="stores-title">Supported stores</h2></div><details class="settings-disclosure"><summary>Capture from 20 stores</summary><p class="x-help">Open one product, choose its options and click the extension. Other stores, cart pages and bulk capture aren't supported.</p><ul id="vendor-list" class="x-vendor-list"></ul></details></section>
     </div>
-    <section class="ui-card">
-      <div class="x-card-head"><h2>Settings</h2></div>
+    <section class="x-settings-section" aria-labelledby="settings-title">
+      <div class="x-card-head"><h2 id="settings-title">Express addition and Carts</h2></div>
       <div class="x-card-body x-card-body-tight">
         <label class="x-setting"><strong>Express addition</strong><span class="x-switch-wrap"><input id="express-enabled" type="checkbox" role="switch" disabled></span><span class="x-help">Click the toolbar icon and the request is sent right away when everything was filled in from the page. If anything needs checking, you get the form with the reason instead. A sent request can only be changed in Notion.</span></label>
         <label id="carts-setting" class="x-setting"><strong>Carts</strong><span class="x-switch-wrap"><input id="carts-enabled" type="checkbox" role="switch" disabled></span><span class="x-help">Adds a Carts page that lists your team's open orders by store and fills store carts in this browser, after you click Build carts. It never checks out or pays. Chrome asks for access to the stores when you turn this on.</span></label>
@@ -55,7 +55,7 @@
       </div>
     </section>
   </main>
-  <footer>Part Requests &middot; v<span id="version"></span> &middot; Sends through your team's LancerLogin site &middot; <a href="THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener noreferrer">Font licenses</a></footer>
+  <footer>Part Requests &middot; v<span id="version"></span> &middot; Sends through your team's LancerLogin site</footer>
 </div></div>
 <script type="module" src="/src/options.ts"></script>
 </body></html>
