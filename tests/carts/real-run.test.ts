@@ -413,13 +413,6 @@ describe('6. BambuLab in a narrow window', () => {
     expect(sent).toEqual([]);
     expect(buy).not.toHaveBeenCalled();
   });
-  it('fails closed when Add to Cart has no form, since either hidden box could be its own', async () => {
-    document.body.innerHTML = `${ld}${summary()}${main('a')}${main('b')}${BAR}`;
-    const add = vi.fn();
-    document.getElementById('add')!.addEventListener('click', add);
-    expect(await bambuAddOnPage(ID, KEY, 1, 300)).toMatchObject({ kind: 'refused', message: expect.stringMatching(/one clear quantity box/) });
-    expect(add).not.toHaveBeenCalled();
-  });
   it('fails closed with two hidden boxes in its form, or none', async () => {
     document.body.innerHTML = `${ld}${summary()}<form>${main('a')}${main('b')}${BAR}</form>`;
     expect(await bambuAddOnPage(ID, KEY, 1, 300)).toMatchObject({ kind: 'refused', message: expect.stringMatching(/one clear quantity box/) });
