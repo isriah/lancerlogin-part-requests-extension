@@ -26,7 +26,7 @@ const check = (name, ok, detail = '') => { results.push({ name, ok }); console.l
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 const productionManifest = JSON.parse(readFileSync(join(root, 'dist', 'manifest.json'), 'utf8'));
-check('Manifest: version 1.0.2', productionManifest.version === '1.0.2');
+check('Manifest: version 1.0.3', productionManifest.version === '1.0.3');
 check('Manifest: no cookie, web-request or always-on store access', !/cookies|webRequest|declarativeNet/.test(JSON.stringify(productionManifest)) && JSON.stringify(productionManifest.host_permissions) === '["https://github.com/*"]');
 const extension = join(work, 'extension');
 cpSync(join(root, 'dist'), extension, { recursive: true });

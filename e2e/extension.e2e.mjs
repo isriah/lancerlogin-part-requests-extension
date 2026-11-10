@@ -332,7 +332,7 @@ try {
   check('Options: no sideways scroll at narrow width', await reopened.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await reopened.close();
 
-  // The update notice: the built version is 1.0.2, and 1.10.0 is above it.
+  // The update notice: the built version is 1.0.3, and 1.10.0 is above it.
   api.minimumVersion = '1.10.0';
   const outdated = watch(await context.newPage());
   await outdated.goto(optionsUrl);
