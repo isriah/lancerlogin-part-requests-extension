@@ -34,6 +34,14 @@ During a LancerLogin update, the extension waits and tries again by itself with 
 
 If your team's site asks for a newer version than this one, Options and the popup show a notice with a link to the update. It never blocks anything.
 
+### Update notices
+
+Chrome never updates an unpacked extension, so the extension looks for a newer release itself. About once a day, and a minute after Chrome starts, the service worker opens `https://github.com/isriah/lancerlogin-part-requests-extension/releases/latest` and reads the version from the release tag page it redirects to. That is a plain request to github.com with no cookies, headers or referrer, and nothing about the student or the team. It doesn't use GitHub's REST API, whose anonymous limit a whole school shares. A failed check is silent and keeps the last answer.
+
+When a newer release exists, the toolbar icon gets a small **↑** badge in the team's secondary color, and the popup shows **Update available: v1.0.3 (you have v1.0.2)** with a **Download** link to that release and the steps: unzip it, replace the extension folder, then press **Reload** on Robotics Part Requests in `chrome://extensions`. **Later** hides it for that version for 3 days. Options shows the installed version and the result in its header, with **Check for updates**. The badge is never set over another badge, and it comes off once the version is current. A prerelease never counts as newer than its release.
+
+The check needs `https://github.com/*` in `host_permissions`, because github.com sends no CORS headers and an extension can only read where a redirect landed with host access. It also needs the `alarms` permission.
+
 ### Look and feel
 
 The popup and Options use the LancerLogin dashboard's design, with Roboto and Bebas Neue bundled in the extension and nothing loaded from anywhere else. They start dark, and **Light mode** in Options changes that. Once paired, the extension uses your team's name and colors from its LancerLogin site. It reads them at pairing and at most once a day after that, keeps the last good colors if a read fails, and forgets them on Unpair. Until then it uses LancerLogin's default colors.
@@ -61,8 +69,8 @@ NORMAL and RUSH start ticked. SLOW and Incomplete start unticked, and anything m
 
 ## Verification status
 
-- Unit tests (`npm test`): 1254 pass, including all 20 adapter fixtures, the device API's results, version comparison, Unpair's outcomes, worker persistence, Express addition's conditions and sends, team color validation and contrast, and popup and Options interactions.
-- Browser end-to-end run (`npm run e2e`): 283 checks against the built extension with a simulated plugin API and Chrome's real permission prompt. It cannot prove the toolbar-click permission grant.
+- Unit tests (`npm test`): 1342 pass, including all 20 adapter fixtures, the device API's results, version comparison, the update check and its badge, Unpair's outcomes, worker persistence, Express addition's conditions and sends, team color validation and contrast, and popup and Options interactions.
+- Browser end-to-end run (`npm run e2e`): 304 checks against the built extension with a simulated plugin API and Chrome's real permission prompt. It cannot prove the toolbar-click permission grant.
 - A pass against the real plugin in a local preview, with Notion stubbed, was last run on version 0.4.0, not 1.0.2, including team colors from Core's real status route; see [Development](docs/DEVELOPMENT.md#tests). Version 0.3.0 has not been run against real Notion, real Discord, real Cloudflare or Google Chrome itself, and Express addition has not been tried from a real toolbar click.
 - Carts: `npm run e2e:carts` (181 checks) drives the built extension against synthetic copies of seven stores and a simulated plugin, and `npm run live:carts` adds one real item each in a throwaway profile. REV, Pololu, WCP, Ambrosia, CTRE, FerrulesDirect, SDS, Thrifty Bot, V-Belt Guys, West3D and Swyft passed live through the built extension. AndyMark passed too, including an item it sells only in multiples, which a build rounds up and flags. Amazon, Ali Express, Harbor Freight, Home Depot, McMaster, Online Metals and PowerWerx have worked in the owner's signed-in browser, including a retry that added nothing. BambuLab is unsupported in Carts: its orders are a checklist to add by hand, though the toolbar still saves requests from its pages. A pass against the real plugin on real Core in a local preview on version 0.4.0, with Notion stubbed and stores synthetic, covered `/orders`, marks and the Admin's switch. Carts has not run against real Notion. See [Carts](docs/CARTS.md#evidence).
 - Option choices: `npm run live:options` chose option combinations on real products from 13 stores through the built 1.0.2 extension, reopening the popup after each choice, and every SKU, price and description matched the page. With nothing chosen, or no complete choice, it asks for an option and leaves the SKU and price blank. Ali Express, Harbor Freight and Home Depot showed bot checks to the automated profile and were not tested; see [Vendors](docs/VENDORS.md).

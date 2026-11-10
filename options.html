@@ -5,11 +5,12 @@
   <header class="x-page-head">
     <div class="x-page-brand"><div class="brand-mark" aria-hidden="true">L</div><span class="brand-heading"><strong id="brand-name">LancerLogin</strong><span>Part Requests</span></span></div>
     <script src="/appearance-boot.js"></script>
-    <div class="x-page-actions"><button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Light mode"><span class="theme-toggle-label" aria-hidden="true">Light mode</span><span class="theme-toggle-track" aria-hidden="true"><span></span></span></button></div>
+    <div class="x-page-actions"><span id="release-state" class="status-pill ui-status pill-neutral" title="Once a day this asks GitHub whether a newer release exists. It sends nothing about you or your team."></span><button id="release-check" class="ui-button" type="button">Check for updates</button><button id="theme-toggle" class="theme-toggle" type="button" role="switch" aria-checked="false" aria-label="Light mode"><span class="theme-toggle-label" aria-hidden="true">Light mode</span><span class="theme-toggle-track" aria-hidden="true"><span></span></span></button></div>
   </header>
   <h1 class="visually-hidden">Part Requests settings</h1>
   <div id="notice" class="x-tone" data-tone="neutral" role="status" aria-live="polite" hidden></div>
   <p id="update-notice" class="x-tone" data-tone="warning" role="status" hidden><strong>Update available:</strong> <span id="update-text"></span> <a id="update-link" target="_blank" rel="noopener noreferrer" hidden>Get the update &#8599;</a></p>
+  <p id="release-notice" class="x-tone" data-tone="warning" role="status" hidden><strong id="release-title"></strong> <a id="release-download" target="_blank" rel="noopener noreferrer">Download &#8599;</a> Unzip it, replace the extension folder, then press Reload on Robotics Part Requests in <a id="release-extensions" href="#">chrome://extensions</a>.</p>
   <p id="default-colors-notice" class="ui-status settings-notice" role="status" hidden>Using LancerLogin's default colors until this device is paired. Then it uses your team's.</p>
   <main class="ui-card x-settings-card">
     <section class="x-settings-section" aria-labelledby="pairing-title">

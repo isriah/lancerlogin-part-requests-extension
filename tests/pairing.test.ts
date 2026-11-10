@@ -30,7 +30,8 @@ describe('what ships',()=>{
   const manifest=JSON.parse(readFileSync(resolve('public/manifest.json'),'utf8'));
   it('asks for no site until pairing, and only https then',()=>{
     expect(manifest.optional_host_permissions).toEqual(['https://*/*']);
-    expect(manifest).not.toHaveProperty('host_permissions');
+    // The only site reachable without asking is github.com, for the daily look at the latest release.
+    expect(manifest.host_permissions).toEqual(['https://github.com/*']);
     expect(JSON.stringify(manifest)).not.toMatch(/localhost|http:|notion\.com/);
     expect(manifest.content_security_policy.extension_pages).toContain("script-src 'self'");
   });

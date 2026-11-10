@@ -144,3 +144,37 @@ describe('settings and team colors',()=>{
   });
   it('a pair-again device keeps its site\'s address visible through the host only when paired',async()=>{view=paired();await open();expect(text('paired-origin')).toBe('team-site.example.test');});
 });
+describe('the version and update status',()=>{
+  const TAG='https://github.com/isriah/lancerlogin-part-requests-extension/releases/tag/v10.0.0';
+  const status=(extra={})=>({current:'9.9.9',latest:'10.0.0',url:TAG,checkedAt:Date.now(),available:true,snoozed:false,...extra});
+  function answering(first:unknown,next:unknown=first){const original=send.getMockImplementation()!;send.mockImplementation(async(m:Message)=>m.type==='update-status'?{ok:true,data:first}:m.type==='update-check'?{ok:true,data:next}:original(m));}
+  it('shows the installed version, not yet checked',async()=>{
+    await open();
+    expect(text('release-state')).toBe('v9.9.9');expect(input('release-notice').hidden).toBe(true);
+  });
+  it('shows an update with its download link and steps, even while put off in the popup',async()=>{
+    answering(status({snoozed:true}));await open();
+    expect(text('release-state')).toBe('v9.9.9 · Update available');expect(input('release-state').title).toMatch(/Last checked today/);
+    expect(input('release-notice').hidden).toBe(false);expect(text('release-title')).toBe('Update available: v10.0.0 (you have v9.9.9)');
+    const link=document.getElementById('release-download') as HTMLAnchorElement;
+    expect(link.href).toBe(TAG);expect(link.target).toBe('_blank');expect(link.rel).toContain('noopener');
+    expect(text('release-notice')).toContain('Unzip it, replace the extension folder, then press Reload on Robotics Part Requests in chrome://extensions.');
+  });
+  it('opens chrome://extensions in a new tab',async()=>{
+    answering(status());await open();
+    document.getElementById('release-extensions')!.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+    expect(chrome.tabs.create).toHaveBeenCalledWith({url:'chrome://extensions'});
+  });
+  it('Check for updates asks the worker, and says when it is up to date',async()=>{
+    answering(undefined,status({available:false,latest:'9.9.9',url:TAG.replace('v10.0.0','v9.9.9')}));await open();
+    input('release-check').click();
+    await vi.waitFor(()=>expect(text('release-state')).toBe('v9.9.9 · Up to date'));
+    expect(send).toHaveBeenCalledWith({type:'update-check'});expect(text('notice')).toBe('v9.9.9 is the latest release.');expect(input('release-check').disabled).toBe(false);
+  });
+  it('Check for updates says when GitHub could not be reached, and keeps the last answer',async()=>{
+    const last=status({checkedAt:Date.now()-60_000});answering(last,last);await open();
+    input('release-check').click();
+    await vi.waitFor(()=>expect(text('notice')).toMatch(/GitHub could not be reached just now/));
+    expect(text('release-state')).toBe('v9.9.9 · Update available');expect(input('release-notice').hidden).toBe(false);
+  });
+});

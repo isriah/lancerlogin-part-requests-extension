@@ -1,4 +1,5 @@
-import type { Brand, Theme } from './brand';
+import { DEFAULT_PRIMARY, DEFAULT_SECONDARY, brandTokens, type Brand, type Theme } from './brand';
+import { badgeAction, fetchLatestRelease, isDue, snoozeFor, UPDATE_BADGE, updateView, type UpdateCheck, type UpdateSnooze, type UpdateView } from './updates';
 import { PIN_USED_UP, PluginClient, QUICK_TIMEOUT_MS, wireDraft, type CreateOutcome } from './client';
 import { AppError } from './errors';
 import { ALREADY_SENT, CHECK_FAILED, pageReasons, repeatReason } from './express';
@@ -73,6 +74,48 @@ function refreshBrand(): Promise<void> {
   })().catch(() => undefined).finally(() => { brandRefresh = undefined; });
   return brandRefresh;
 }
+// ---- Update notice. See src/updates.ts for how the latest release is read. Nothing here ever blocks a request.
+const UPDATE_ALARM = 'update-check';
+let updateRun: Promise<UpdateView> | undefined;
+async function updateStatus(): Promise<UpdateView> {
+  const [check, snooze] = await Promise.all([get<UpdateCheck>('updateCheck'), get<UpdateSnooze>('updateSnooze')]);
+  return updateView(chrome.runtime.getManifest().version ?? '', check, snooze, Date.now());
+}
+/** Puts the update badge on, or takes it off, without touching a badge set for anything else. It never rejects. */
+async function showUpdateBadge(): Promise<void> {
+  try {
+    const status = await updateStatus();
+    const action = badgeAction(await chrome.action.getBadgeText({}), status);
+    if (action === 'keep') return;
+    const title = chrome.runtime.getManifest().action?.default_title ?? '';
+    if (action === 'clear') { await chrome.action.setBadgeText({ text: '' }); await chrome.action.setTitle({ title }); return; }
+    // The team's secondary color, as on the brand mark, or LancerLogin's gold before pairing.
+    const [site, brand] = await Promise.all([get<Site>('site'), get<Brand>('brand')]);
+    const colors = site && brand ? brand : { primary: DEFAULT_PRIMARY, secondary: DEFAULT_SECONDARY };
+    await chrome.action.setBadgeBackgroundColor({ color: colors.secondary });
+    await chrome.action.setBadgeTextColor({ color: brandTokens(colors.primary, colors.secondary, 'dark')['--on-secondary'] });
+    await chrome.action.setBadgeText({ text: UPDATE_BADGE });
+    await chrome.action.setTitle({ title: `${title}. Update available: v${status.latest}` });
+  } catch { /* The badge is only a hint. */ }
+}
+/** Asks GitHub when it's due, or now when `force`. A failure keeps the last good answer. Calls at the same time share one request. */
+function checkForUpdate(force: boolean): Promise<UpdateView> {
+  updateRun ??= (async () => {
+    if (force || isDue(await get<UpdateCheck>('updateCheck'), Date.now())) {
+      const latest = await fetchLatestRelease(fetch);
+      if (latest) await put('updateCheck', latest);
+    }
+    await showUpdateBadge();
+    return updateStatus();
+  })().finally(() => { updateRun = undefined; });
+  return updateRun;
+}
+/** A minute after Chrome starts or the extension is installed or reloaded, then every hour. Each wake asks GitHub only when due. */
+const scheduleUpdateChecks = () => { void chrome.alarms.create(UPDATE_ALARM, { delayInMinutes: 1, periodInMinutes: 60 }); };
+chrome.runtime.onInstalled.addListener(() => { scheduleUpdateChecks(); void showUpdateBadge(); });
+chrome.runtime.onStartup.addListener(scheduleUpdateChecks);
+chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === UPDATE_ALARM) void checkForUpdate(false).catch(() => undefined); });
+
 /** The key is forgotten, the site is kept so pairing again is one step, and drafts are untouched. */
 async function pairAgain(): Promise<void> {
   const site = await get<Site>('site');
@@ -480,6 +523,15 @@ async function handle(message: Message): Promise<unknown> {
       }
       const next = { ...chosen, submissionId: crypto.randomUUID(), updatedAt: Date.now() };
       await put(`draft:${record.key}`, next); return next;
+    }
+    case 'update-status': return updateStatus();
+    case 'update-check': return checkForUpdate(true);
+    case 'update-later': {
+      const status = await updateStatus();
+      if (!status.available || message.version !== status.latest) throw new AppError('There is no update to put off.');
+      await put('updateSnooze', snoozeFor(status.latest, Date.now()));
+      await showUpdateBadge();
+      return updateStatus();
     }
     default: throw new AppError('Unknown extension operation.');
   }

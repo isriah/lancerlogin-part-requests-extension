@@ -4,7 +4,9 @@ import { validateDraft } from './validate';
 import type { CaptureResult, Choice, DraftRecord, ExpressReason, Repeat, RequestDraft, SettingsView, Submission } from './types';
 import { applyAppearance } from './appearance';
 import { safePageUrl } from './client';
-import { choices, el, errorText, notice, send, showUpdateNotice, UiError } from './ui';
+import { asUpdateView, choices, el, errorText, linkExtensionsPage, newerRelease, notice, send, showUpdateNotice, UiError } from './ui';
+import type { UpdateView } from './updates';
+import { isBelowMinimum } from './version';
 
 let settings: SettingsView = { pairing: 'unpaired', defaultTeam: '' };
 let record: DraftRecord | undefined;
@@ -15,6 +17,7 @@ let saving: Promise<unknown> = Promise.resolve();
 let savingError = '';
 let busy = false;
 let reloading = false;
+let update: UpdateView | undefined;
 const form = el<HTMLFormElement>('request-form');
 const submitButton = el<HTMLButtonElement>('submit');
 const fields = ['description', 'status', 'sku', 'team', 'recipient', 'url', 'quantity', 'price'] as const;
@@ -37,6 +40,7 @@ function fillChoices(team: string, recipient: string): void {
 function showPairing(): void {
   applyAppearance(settings);
   showUpdateNotice(settings.options);
+  showRelease();
   // Shows only when this device turned Carts on and the Admin hasn't turned it off.
   el('carts').hidden = !(isPaired() && settings.cartsEnabled === true && settings.options?.cartsEnabled !== false);
   el('setup').hidden = isPaired();
@@ -47,6 +51,28 @@ function showPairing(): void {
     : 'Run /ordering-pin in Discord for a PIN, then enter it in settings. Your drafts are kept.';
   setEnabled();
 }
+/** A newer release on GitHub, unless the student chose Later for it. It only informs: nothing waits on it. */
+function showRelease(): void {
+  const release = update?.snoozed ? null : newerRelease(update);
+  el('release-notice').hidden = !release;
+  if (!release) return;
+  el('release-title').textContent = `Update available: v${release.version} (you have v${update!.current})`;
+  el<HTMLAnchorElement>('release-download').href = release.url;
+  // The site's minimum-version notice says less, so it steps aside when this release meets that minimum.
+  if (!isBelowMinimum(release.version, settings.options?.minimumExtensionVersion)) el('update-notice').hidden = true;
+}
+async function loadRelease(): Promise<void> {
+  try { update = asUpdateView(await send({ type: 'update-status' })); showRelease(); }
+  catch { /* Only a hint: the popup works the same without it. */ }
+}
+el('release-later').addEventListener('click', () => {
+  const version = update?.latest;
+  if (!update || !version) return;
+  update = { ...update, snoozed: true };
+  showUpdateNotice(settings.options); showRelease();
+  void send({ type: 'update-later', version }).catch(() => undefined);
+});
+linkExtensionsPage(el('release-extensions'));
 /** A list with its heading: the heading's box hides along with an empty list. */
 function setList(id: string, items: string[]): void {
   const list = el(id); list.replaceChildren();
@@ -292,6 +318,7 @@ async function refreshOptions(): Promise<void> {
 }
 async function init(): Promise<void> {
   await reloadSettings();
+  void loadRelease();
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error('Open a product in a regular Chrome tab.');
   tabId = tab.id; await capture(true);

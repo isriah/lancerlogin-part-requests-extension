@@ -1,4 +1,5 @@
 import { safeUpdateUrl } from './client';
+import { parseReleaseUrl, type UpdateView } from './updates';
 import { isBelowMinimum } from './version';
 import type { DeviceOptions, Message } from './types';
 export class UiError extends Error {
@@ -29,5 +30,16 @@ export function showUpdateNotice(options: DeviceOptions | undefined): void {
   const url = safeUpdateUrl(options!.updateUrl);
   link.hidden = !url;
   if (url) link.href = url; else link.removeAttribute('href');
+}
+/** The worker's update status, or undefined for any other answer, such as one from an older worker. */
+export function asUpdateView(value: unknown): UpdateView | undefined {
+  const view = value as Partial<UpdateView> | null;
+  return view && typeof view === 'object' && typeof view.available === 'boolean' && typeof view.current === 'string' ? view as UpdateView : undefined;
+}
+/** The release page to download a newer version from, checked again here so the link only ever opens this repository's releases. */
+export const newerRelease = (view: UpdateView | undefined): { version: string; url: string } | null => view?.available ? parseReleaseUrl(view.url) : null;
+/** A page can't link to chrome://extensions, but the extension can open it in a new tab. */
+export function linkExtensionsPage(link: HTMLElement): void {
+  link.addEventListener('click', event => { event.preventDefault(); void chrome.tabs.create({ url: 'chrome://extensions' }); });
 }
 export function errorText(error: unknown): string { return error instanceof Error ? error.message : 'Something went wrong. Please try again.'; }

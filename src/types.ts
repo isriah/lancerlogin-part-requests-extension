@@ -124,4 +124,8 @@ export type Message =
   | { type: 'discard'; key: string }
   | { type: 'submission'; id: string }
   | { type: 'submit'; key: string; submissionId: string }
-  | { type: 'restart'; key: string; acknowledgeUncertain: boolean };
+  | { type: 'restart'; key: string; acknowledgeUncertain: boolean }
+  /** The newest release on GitHub, as last checked. `update-check` asks GitHub now; `update-later` hides that version's notice for 3 days. */
+  | { type: 'update-status' }
+  | { type: 'update-check' }
+  | { type: 'update-later'; version: string };

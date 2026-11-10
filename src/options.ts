@@ -5,7 +5,8 @@ import { allStoreOrigins, originsToGiveBack } from './carts/registry';
 import { manifestAllowsLocalHttp, normalizePin, normalizeSiteAddress, originPattern } from './pairing';
 import { VENDORS } from './vendors';
 import type { SettingsView, UnpairView } from './types';
-import { choices, el, errorText, notice, send, showUpdateNotice, UiError } from './ui';
+import { asUpdateView, choices, el, errorText, linkExtensionsPage, newerRelease, notice, send, showUpdateNotice, UiError } from './ui';
+import type { UpdateView } from './updates';
 
 let settings: SettingsView = { pairing: 'unpaired', defaultTeam: '' };
 const address = el<HTMLInputElement>('site-address');
@@ -14,7 +15,10 @@ const label = el<HTMLInputElement>('device-label');
 const express = el<HTMLInputElement>('express-enabled');
 const carts = el<HTMLInputElement>('carts-enabled');
 for (const vendor of VENDORS) { const li = document.createElement('li'); li.textContent = vendor.label; el('vendor-list').append(li); }
-el('version').textContent = globalThis.chrome?.runtime?.getManifest?.().version ?? '';
+const version = globalThis.chrome?.runtime?.getManifest?.().version ?? '';
+el('version').textContent = version;
+let update: UpdateView | undefined;
+renderRelease();
 
 function showSwatch(id: string, name: string, color: string, text: string): void {
   const swatch = el(id);
@@ -27,6 +31,34 @@ function checkedText(at: number): string {
   const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   return date.toDateString() === new Date().toDateString() ? `today at ${time}` : `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} at ${time}`;
 }
+/** The installed version and the newest release as last checked, in the header, and how to update when there's one. */
+function renderRelease(): void {
+  const release = newerRelease(update);
+  const state = el('release-state');
+  state.textContent = release ? `v${version} · Update available` : update?.checkedAt ? `v${version} · Up to date` : `v${version}`;
+  state.classList.toggle('pill-neutral', !update?.checkedAt);
+  if (release) state.dataset.tone = 'warning'; else if (update?.checkedAt) state.dataset.tone = 'success'; else delete state.dataset.tone;
+  state.title = `${update?.checkedAt ? `Last checked ${checkedText(update.checkedAt)}. ` : ''}Once a day this asks GitHub whether a newer release exists. It sends nothing about you or your team.`;
+  el('release-notice').hidden = !release;
+  if (!release) return;
+  el('release-title').textContent = `Update available: v${release.version} (you have v${version})`;
+  el<HTMLAnchorElement>('release-download').href = release.url;
+}
+el('release-check').addEventListener('click', async () => {
+  const button = el<HTMLButtonElement>('release-check');
+  const before = update?.checkedAt;
+  button.disabled = true; button.textContent = 'Checking...';
+  try {
+    update = asUpdateView(await send({ type: 'update-check' })) ?? update;
+    renderRelease();
+    // An update already has its own notice, with the link and the steps.
+    if (!update?.checkedAt || update.checkedAt === before) notice('GitHub could not be reached just now. Try again later.', 'warning');
+    else notice(newerRelease(update) ? '' : `v${version} is the latest release.`, 'success');
+  } catch { notice('GitHub could not be reached just now. Try again later.', 'warning'); }
+  finally { button.disabled = false; button.textContent = 'Check for updates'; }
+});
+linkExtensionsPage(el('release-extensions'));
+send({ type: 'update-status' }).then(value => { update = asUpdateView(value); renderRelease(); }).catch(() => renderRelease());
 function renderBrand(): void {
   const brand = settings.brand;
   const primary = brand?.primary || DEFAULT_PRIMARY, secondary = brand?.secondary || DEFAULT_SECONDARY;
