@@ -14,7 +14,8 @@ const manifest = JSON.parse(readFileSync(join(dist, 'manifest.json'), 'utf8'));
 const refuse = message => { console.error(`Not packaging: ${message}`); process.exit(1); };
 if (manifest.version !== pkg.version) refuse(`manifest version ${manifest.version} does not match package.json ${pkg.version}.`);
 if (JSON.stringify(manifest.optional_host_permissions) !== '["https://*/*"]') refuse('optional_host_permissions must be exactly https://*/*.');
-if (manifest.host_permissions) refuse('host_permissions must be absent.');
+// The one always-on site is github.com, for the daily look at the latest release (src/updates.ts).
+if (JSON.stringify(manifest.host_permissions) !== '["https://github.com/*"]') refuse('host_permissions must be exactly https://github.com/*.');
 if (/localhost|http:/.test(JSON.stringify(manifest))) refuse('the manifest mentions http or localhost.');
 if (!/font-src 'self'/.test(manifest.content_security_policy?.extension_pages ?? '')) refuse("the CSP must say font-src 'self'.");
 if (!existsSync(join(dist, 'THIRD_PARTY_NOTICES.txt'))) refuse('the font license notices are missing.');

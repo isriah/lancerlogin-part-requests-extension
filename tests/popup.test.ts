@@ -189,3 +189,50 @@ describe('Express addition in the popup',()=>{
     expect(text('express-reasons')).toContain('Notion refused');expect(send.mock.calls.filter(([m])=>m.type==='submit')).toHaveLength(0);
   });
 });
+describe('the update banner',()=>{
+  const TAG='https://github.com/isriah/lancerlogin-part-requests-extension/releases/tag/v1.0.3';
+  const node=(id:string)=>document.getElementById(id)!;
+  const status=(extra={})=>({current:'1.0.2',latest:'1.0.3',url:TAG,checkedAt:1,available:true,snoozed:false,...extra});
+  function answering(update:unknown){const original=send.getMockImplementation()!;send.mockImplementation(async(m:Message)=>m.type==='update-status'?{ok:true,data:update}:m.type==='update-later'?{ok:true,data:status({snoozed:true})}:original(m));}
+  it('says which version is out, links to its release page in a new tab, and says how to install it',async()=>{
+    answering(status());await open();
+    await vi.waitFor(()=>expect(node('release-notice').hidden).toBe(false));
+    expect(text('release-title')).toBe('Update available: v1.0.3 (you have v1.0.2)');
+    const download=node('release-download') as HTMLAnchorElement;
+    expect(download.href).toBe(TAG);expect(download.target).toBe('_blank');expect(download.rel).toContain('noopener');
+    expect(text('release-notice')).toContain('Unzip it, replace the extension folder, then press Reload on Robotics Part Requests in chrome://extensions.');
+    // The form is still there and still works.
+    expect(input('request-form').hidden).toBe(false);expect(input('submit').disabled).toBe(false);
+  });
+  it('opens chrome://extensions in a new tab, since a page cannot link to it',async()=>{
+    answering(status());const create=vi.fn();(chrome as any).tabs.create=create;await open();
+    node('release-extensions').dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));
+    expect(create).toHaveBeenCalledWith({url:'chrome://extensions'});
+  });
+  it('Later hides it and tells the worker which version',async()=>{
+    answering(status());await open();await vi.waitFor(()=>expect(node('release-notice').hidden).toBe(false));
+    node('release-later').click();
+    expect(node('release-notice').hidden).toBe(true);
+    expect(send).toHaveBeenCalledWith({type:'update-later',version:'1.0.3'});
+  });
+  it('stays hidden while put off, when current, or when the worker answers something else',async()=>{
+    for(const update of [status({snoozed:true}),status({available:false,latest:'1.0.2'}),true,null,{available:true}]){
+      vi.resetModules();document.body.innerHTML=readFileSync(resolve('popup.html'),'utf8').match(/<body[^>]*>([\s\S]*)<\/body>/)![1];
+      send.mockReset();send.mockImplementation(async(m:Message)=>({ok:true,data:m.type==='settings'||m.type==='refresh-options'?view:m.type==='capture'?{record:structuredClone(r)}:m.type==='check-repeats'?{repeats:[]}:true}));
+      answering(update);await open();await vi.advanceTimersByTimeAsync(10);
+      expect(node('release-notice').hidden).toBe(true);
+    }
+  });
+  it('never links anywhere but this repository\'s releases',async()=>{
+    answering(status({url:'https://evil.example.test/isriah/lancerlogin-part-requests-extension/releases/tag/v1.0.3'}));await open();await vi.advanceTimersByTimeAsync(10);
+    expect(node('release-notice').hidden).toBe(true);
+  });
+  it('replaces the site\'s minimum-version notice when the release meets it',async()=>{
+    view.options={...view.options!,minimumExtensionVersion:'1.0.3',updateUrl:'https://github.com/isriah/lancerlogin-part-requests-extension/releases'};
+    (chrome as any).runtime.getManifest=()=>({version:'1.0.2'});
+    answering(status());await open();await vi.waitFor(()=>expect(node('release-notice').hidden).toBe(false));
+    expect(node('update-notice').hidden).toBe(true);
+    node('release-later').click();
+    expect(node('update-notice').hidden).toBe(false);
+  });
+});

@@ -183,8 +183,9 @@ const CHECKED_STORE_FILES = [
 describe('what ships', () => {
   const manifest = JSON.parse(readFileSync(resolve('public/manifest.json'), 'utf8'));
   it('asks for nothing new: no cookies, no web requests, no always-on store access', () => {
-    expect(manifest.permissions).toEqual(['activeTab', 'scripting', 'storage']);
-    expect(manifest.host_permissions).toBeUndefined();
+    expect(manifest.permissions).toEqual(['activeTab', 'alarms', 'scripting', 'storage']);
+    // github.com only, for the update check. No store is ever reachable without the Carts prompt.
+    expect(manifest.host_permissions).toEqual(['https://github.com/*']);
     expect(manifest.declarative_net_request).toBeUndefined();
   });
   it('the service worker holds no store code: builds run in the Carts page', () => {

@@ -26,12 +26,12 @@ const check = (name, ok, detail = '') => { results.push({ name, ok }); console.l
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
 const productionManifest = JSON.parse(readFileSync(join(root, 'dist', 'manifest.json'), 'utf8'));
-check('Manifest: version 1.0.2', productionManifest.version === '1.0.2');
-check('Manifest: no cookie, web-request or always-on host access', !/cookies|webRequest|declarativeNet/.test(JSON.stringify(productionManifest)) && !productionManifest.host_permissions);
+check('Manifest: version 1.0.3', productionManifest.version === '1.0.3');
+check('Manifest: no cookie, web-request or always-on store access', !/cookies|webRequest|declarativeNet/.test(JSON.stringify(productionManifest)) && JSON.stringify(productionManifest.host_permissions) === '["https://github.com/*"]');
 const extension = join(work, 'extension');
 cpSync(join(root, 'dist'), extension, { recursive: true });
 // The test copy changes one thing: the simulated site is listed, so pairing needs no prompt. Store access is left to the real flow unless the prompt is stubbed.
-writeFileSync(join(extension, 'manifest.json'), JSON.stringify({ ...productionManifest, host_permissions: [`${SITE}/*`] }));
+writeFileSync(join(extension, 'manifest.json'), JSON.stringify({ ...productionManifest, host_permissions: [...productionManifest.host_permissions, `${SITE}/*`] }));
 
 // The simulated plugin, following the "Carts" part of its README.
 const DEVICE_KEY = 'e2eFakeDeviceKey00000000000000000000000000x'.slice(0, 43);
@@ -110,8 +110,10 @@ const problems = [], remote = [], outsiders = [];
 const stores = createStores();
 try {
   await context.route(`${SITE}/**`, plugin);
+  // The daily update check never reaches the real GitHub here: it gets a page that names no release, so nothing changes.
+  await context.route('https://github.com/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Releases</title>' }));
   await stores.install(context);
-  const allowedHosts = /^(https:\/\/team-site\.example\.test|https:\/\/wcproducts\.com|https:\/\/andymark\.com|https:\/\/www\.revrobotics\.com|https:\/\/www\.pololu\.com|https:\/\/www\.mcmaster\.com|https:\/\/www\.homedepot\.com|https:\/\/www\.aliexpress\.us|chrome-extension:|data:|about:|chrome:|edge:)/;
+  const allowedHosts = /^(https:\/\/team-site\.example\.test|https:\/\/wcproducts\.com|https:\/\/andymark\.com|https:\/\/www\.revrobotics\.com|https:\/\/www\.pololu\.com|https:\/\/www\.mcmaster\.com|https:\/\/www\.homedepot\.com|https:\/\/www\.aliexpress\.us|https:\/\/github\.com\/isriah\/lancerlogin-part-requests-extension\/releases|chrome-extension:|data:|about:|chrome:|edge:)/;
   // Anything else would really leave the computer, so it never gets that far.
   await context.route('**/*', route => {
     const url = route.request().url();

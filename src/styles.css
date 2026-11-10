@@ -294,6 +294,14 @@ p.x-tone { margin: 0; }
 /* The update notice never blocks anything. It gives way to whatever needs acting on now, so the form still fits. */
 html:has(#notice:not([hidden])) #update-notice,html:has(#setup:not([hidden])) #update-notice,html:has(#result:not([hidden])) #update-notice,html:has(#validation-box:not([hidden])) #update-notice,html:has(#repeat-warning:not([hidden])) #update-notice,html:has(#express-reasons-box:not([hidden])) #update-notice { display: none; }
 html[data-kind="page"] #update-notice { display: block; }
+/* A newer release on GitHub: one row, laid out like the pairing prompt. It gives way to errors and to Express addition's reasons. */
+.x-release { display: flex; align-items: center; gap: var(--space-2) var(--space-3); }
+.x-release > div { flex: 1 1 auto; min-width: 0; }
+.x-release-steps { display: block; }
+.app .x-release a.ui-button { flex: 0 0 auto; padding-inline: var(--space-3); color: var(--ui-text) !important; text-decoration: none; }
+.app .x-release button.x-quiet.ui-button { flex: 0 0 auto; }
+html[data-kind="popup"]:has(#notice:not([hidden])) #release-notice,html[data-kind="popup"]:has(#validation-box:not([hidden])) #release-notice,html[data-kind="popup"]:has(#express-reasons-box:not([hidden])) #release-notice { display: none; }
+
 @media (max-width: 900px) {
   .x-columns,.x-page .x-settings-card { grid-template-columns: minmax(0,1fr); }
   .x-settings-section + .x-settings-section { padding-left: 0; padding-top: var(--space-4); border-left: 0; border-top: 1px solid var(--ui-border); }

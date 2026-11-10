@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Robotics Part Requests",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Review a product from your team's supported stores and send a part request through your team's LancerLogin site. Optional: fill store carts from open orders. It never checks out.",
   "minimum_chrome_version": "120",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "alarms", "scripting", "storage"],
+  "host_permissions": ["https://github.com/*"],
   "optional_host_permissions": ["https://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "Request this part" },

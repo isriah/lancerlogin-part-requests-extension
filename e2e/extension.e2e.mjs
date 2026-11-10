@@ -29,11 +29,18 @@ const stores = ['https://www.revrobotics.com/*', 'https://www.pololu.com/*', 'ht
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${!ok && detail ? ` -> ${detail}` : ''}`); };
 const productionManifest = JSON.parse(readFileSync(join(root, 'dist', 'manifest.json'), 'utf8'));
-check('Built manifest asks only for https sites, optionally', JSON.stringify(productionManifest.optional_host_permissions) === '["https://*/*"]' && !productionManifest.host_permissions && !/localhost|http:|notion\.com/.test(JSON.stringify(productionManifest)));
+check('Built manifest asks only for https sites, optionally, and github.com for the update check', JSON.stringify(productionManifest.optional_host_permissions) === '["https://*/*"]' && JSON.stringify(productionManifest.host_permissions) === '["https://github.com/*"]' && !/localhost|http:|notion\.com/.test(JSON.stringify(productionManifest)));
 
 const extension = join(work, 'extension');
 cpSync(join(root, 'dist'), extension, { recursive: true });
-writeFileSync(join(extension, 'manifest.json'), JSON.stringify({ ...productionManifest, host_permissions: realPrompt ? stores : [...stores, `${SITE}/*`] }));
+writeFileSync(join(extension, 'manifest.json'), JSON.stringify({ ...productionManifest, host_permissions: [...productionManifest.host_permissions, ...(realPrompt ? stores : [...stores, `${SITE}/*`])] }));
+
+// The update check never reaches the real GitHub. Playwright can't stand in for the second hop of a redirect a service worker follows
+// (Chrome fetches it from the real network), so the worker's fetch is swapped for GitHub's addresses only, and a route answers
+// anything that still gets out with a page that names no release. The real redirect is checked by hand, as docs/DEVELOPMENT.md says.
+const RELEASE_TAG = 'https://github.com/isriah/lancerlogin-part-requests-extension/releases/tag/v';
+const github = { calls: [] };
+const NEWER = productionManifest.version.replace(/\d+$/, n => String(Number(n) + 1));
 
 // The simulated plugin. It follows the README's contract, including one create per submission ID.
 const DEVICE_KEY = 'e2eFakeDeviceKey00000000000000000000000000x'.slice(0, 43);
@@ -161,6 +168,11 @@ async function pressPrompt(button) {
 }
 try {
   await context.route(`${SITE}/**`, plugin);
+  await context.route('https://github.com/**', route => {
+    const request = route.request();
+    github.calls.push(request.url());
+    return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Releases</title>' });
+  });
   context.on('request', request => {
     const url = request.url();
     allRequests.push(url);
@@ -320,7 +332,7 @@ try {
   check('Options: no sideways scroll at narrow width', await reopened.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await reopened.close();
 
-  // The update notice: the built version is 1.0.2, and 1.10.0 is above it.
+  // The update notice: the built version is 1.0.3, and 1.10.0 is above it.
   api.minimumVersion = '1.10.0';
   const outdated = watch(await context.newPage());
   await outdated.goto(optionsUrl);
@@ -476,6 +488,59 @@ try {
   popup = await reopen(popup, page);
   await popup.waitForSelector('#request-form:not([hidden])');
   check('Update notice: gone once the version meets the minimum', await until(popup, () => document.getElementById('update-notice').hidden, 8000));
+
+  // ---- The release notice: the daily look at GitHub's latest release. Check for updates in Options asks at once.
+  // GitHub's answer as fetch gives it after the redirect: the final address is the latest release's tag page.
+  const extensionWorker = () => context.serviceWorkers().find(w => w.url().startsWith(`chrome-extension://${id}/`));
+  const fakeGithub = version => extensionWorker().evaluate(([version, tag]) => {
+    globalThis.realFetch ??= globalThis.fetch;
+    globalThis.githubAsks ??= [];
+    globalThis.fetch = (input, init) => {
+      if (!String(input).startsWith('https://github.com/')) return globalThis.realFetch(input, init);
+      globalThis.githubAsks.push({ url: String(input), method: init?.method, credentials: init?.credentials, referrerPolicy: init?.referrerPolicy, headers: init?.headers ?? null, body: init?.body ?? null });
+      return Promise.resolve(Object.defineProperty(new Response(null, { status: 200 }), 'url', { value: `${tag}${version}` }));
+    };
+  }, [version, RELEASE_TAG]);
+  const badgeText = () => options.evaluate(() => chrome.action.getBadgeText({}));
+  check('Release: no badge while this build is the latest', (await badgeText()) === '');
+  await fakeGithub(NEWER);
+  await options.click('#release-check');
+  check('Release: Options says an update is available', await until(options, () => / Update available$/.test(document.getElementById('release-state').textContent), 10000), await textOf(options, 'release-state'));
+  check('Release: Options shows the notice, naming both versions and linking to the release page', await options.isVisible('#release-notice') && (await textOf(options, 'release-title')) === `Update available: v${NEWER} (you have v${productionManifest.version})` && (await options.getAttribute('#release-download', 'href')) === `${RELEASE_TAG}${NEWER}`, await textOf(options, 'release-title'));
+  const asked = await extensionWorker().evaluate(() => globalThis.githubAsks);
+  check('Release: one plain HEAD to releases/latest, with no cookies, headers, body or referrer', asked.length === 1 && asked[0].url.endsWith('/releases/latest') && asked[0].method === 'HEAD' && asked[0].credentials === 'omit' && asked[0].referrerPolicy === 'no-referrer' && asked[0].headers === null && asked[0].body === null, JSON.stringify(asked));
+  check('Release: the toolbar shows the update badge', await until(options, () => chrome.action.getBadgeText({}).then(text => text === '\u2191'), 5000), await badgeText());
+  check('Options with an update available fits 1366x650', await fits(options, 650), await scrollHeight(options));
+  await shot(options, 'options-release-available');
+  popup = await reopen(popup, page);
+  await popup.waitForSelector('#request-form:not([hidden])');
+  check('Release: the popup shows the banner', await until(popup, () => !document.getElementById('release-notice').hidden, 8000));
+  check('Release: the banner names both versions and links to the release in a new tab', (await textOf(popup, 'release-title')) === `Update available: v${NEWER} (you have v${productionManifest.version})` && (await popup.getAttribute('#release-download', 'href')) === `${RELEASE_TAG}${NEWER}` && (await popup.getAttribute('#release-download', 'target')) === '_blank', await textOf(popup, 'release-title'));
+  check('Release: the banner says how to install it', /Unzip it, replace the extension folder, then press Reload on Robotics Part Requests in chrome:\/\/extensions\./.test(await textOf(popup, 'release-notice')));
+  check('Release: the popup can still send', !(await popup.isDisabled('#submit')) && await visible(popup, '#request-form'));
+  check('Popup with the release banner fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  await shot(popup, 'popup-release-notice');
+  await showWarnings(true);
+  check('Release: the banner gives way to messages that need acting on', !(await visible(popup, '#release-notice')));
+  check('Popup with an update out and every warning fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  await hideWarnings();
+  await showWarnings(false);
+  check('Popup with an update out and every unpaired warning fits 600px', await fits(popup, 600), await scrollHeight(popup));
+  await hideWarnings();
+  check('Release: the banner returns when those clear', await visible(popup, '#release-notice'));
+  await popup.click('#release-later');
+  check('Release: Later hides the banner', !(await visible(popup, '#release-notice')));
+  check('Release: Later takes the badge off', await until(options, () => chrome.action.getBadgeText({}).then(text => text === ''), 5000), await badgeText());
+  popup = await reopen(popup, page);
+  await popup.waitForSelector('#request-form:not([hidden])');
+  await popup.waitForTimeout(500);
+  check('Release: the banner stays hidden after Later', !(await visible(popup, '#release-notice')));
+  await fakeGithub(productionManifest.version);
+  await options.click('#release-check');
+  check('Release: Options says up to date once this is the latest', await until(options, () => / Up to date$/.test(document.getElementById('release-state').textContent), 10000) && await options.isHidden('#release-notice'), await textOf(options, 'release-state'));
+  check('Release: no badge once current', (await badgeText()) === '');
+  check('Release: nothing went to the real GitHub', github.calls.length === 0, github.calls.join());
+  await options.evaluate(() => chrome.storage.local.remove(['updateCheck', 'updateSnooze']));
 
   // Editing the URL re-derives the vendor; unsupported URLs disable creation.
   await popup.fill('#url', 'https://www.pololu.com/product/5780');

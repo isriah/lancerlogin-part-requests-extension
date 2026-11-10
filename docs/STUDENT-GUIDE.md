@@ -52,6 +52,16 @@ Carts helps whoever places orders. It lists your team's open orders by store and
 
 If a store asks you to sign in or shows a robot check, Carts stops there and gives you the links. Sign in on the store's site and build again, because a second build only adds what's missing. Marking an order as ordered still happens in Notion.
 
+## Updates
+
+Once a day the extension asks GitHub whether there's a newer version. It sends nothing about you or your team. When there is one, a small **↑** shows on its toolbar icon and the popup says **Update available**. To update:
+
+1. Click **Download** and get `robotics-part-requests-<version>.zip` from the release page.
+2. Unzip it, and replace the files in your extension folder with the new ones. Keep the same folder in the same place, so Chrome keeps your pairing, settings and drafts. A different folder counts as a new extension that you'd have to pair again.
+3. Open `chrome://extensions` and press **Reload** on **Robotics Part Requests**. The link in the popup opens that page for you.
+
+**Later** hides the notice for 3 days. Settings shows your version, with **Check for updates** at the top.
+
 ## Light mode
 
 The extension starts dark. Use the **Light mode** switch at the top of settings to change it. Once you pair, it uses your team's name and colors.
@@ -65,7 +75,7 @@ The extension starts dark. Use the **Light mode** switch at the top of settings 
 | No answer from the site, or your PIN may already be used up | The site may have used up your PIN even though no answer came back. Run `/ordering-pin` again and enter the new PIN. Trying the old one again won't work. |
 | You chose Deny | Click **Pair this device** again and choose **Allow**. |
 | You already have 5 paired devices | Click **Unpair this device** on one you still have, or ask an Admin to remove one. |
-| Update available | Your extension is older than your team's site asks for. It keeps working. Follow the link, or ask your team for the new zip, when you have a moment. |
+| Update available | A newer version is out, or your team's site asks for a newer one. It keeps working. Follow [Updates](#updates) when you have a moment. |
 | Unpaired on this computer, and an Admin may need to remove it | The site couldn't be reached or didn't accept the key. If `/ordering-pin` says you have too many devices, ask an Admin to remove this one. |
 | The site is updating | Wait. It tries again by itself. |
 | **Check Notion before retrying** or **Not sure it was created** | Your request may already exist, and it won't be sent again by itself. Click **Check ordering database** to look first. Only if it isn't there, tick the box and retry. |

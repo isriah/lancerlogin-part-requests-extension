@@ -1,7 +1,7 @@
 import { beforeEach,afterEach,describe,it,expect,vi } from 'vitest';
 import { API,DEVICE_KEY,SITE,deviceOptions,record,response } from './helpers';
 import type { Message } from '../src/types';
-let values: Record<string,any>,listener: (m:Message,s:any,r:(v:any)=>void)=>boolean,chromeMock:any,hasPermission:boolean;
+let badge='',values: Record<string,any>,listener: (m:Message,s:any,r:(v:any)=>void)=>boolean,chromeMock:any,hasPermission:boolean;
 const sender={id:'extension-id',url:'chrome-extension://extension-id/popup.html'};
 const call=(message:Message,origin=sender)=>new Promise<any>(resolve=>listener(message,origin,resolve));
 const created=(extra={})=>response({state:'created',pageUrl:'https://www.notion.so/new-request',repeats:[],...extra},201);
@@ -10,8 +10,8 @@ const bodyOf=(n:number)=>JSON.parse(fetchMock().mock.calls[n][1].body);
 const site={origin:SITE,memberName:'Test Student A',deviceLabel:'Shop laptop',pairedAt:1};
 function send(...replies:(Response|Error)[]){let n=0;vi.stubGlobal('fetch',vi.fn(async()=>{const reply=replies[Math.min(n++,replies.length-1)];if(reply instanceof Error)throw reply;return reply.clone();}));}
 beforeEach(async()=>{
-  vi.resetModules();hasPermission=true;values={site,deviceKey:DEVICE_KEY,options:deviceOptions(),defaultTeam:'team1'};
-  chromeMock={storage:{local:{setAccessLevel:vi.fn(async()=>{}),get:vi.fn(async(key:string|null)=>structuredClone(key===null?values:{[key]:values[key]})),set:vi.fn(async(data:Record<string,unknown>)=>Object.assign(values,structuredClone(data))),remove:vi.fn(async(keys:string|string[])=>{for(const key of [keys].flat())delete values[key];})}},permissions:{contains:vi.fn(async()=>hasPermission),remove:vi.fn(async()=>true)},runtime:{id:'extension-id',getManifest:()=>({optional_host_permissions:['https://*/*']}),getURL:(p:string)=>`chrome-extension://extension-id/${p}`,onMessage:{addListener:(l:typeof listener)=>{listener=l;}}},tabs:{get:vi.fn(async()=>({id:42,url:record().draft.url}))},scripting:{executeScript:vi.fn(async()=>[{result:record().capture}])}};
+  vi.resetModules();hasPermission=true;badge='';values={site,deviceKey:DEVICE_KEY,options:deviceOptions(),defaultTeam:'team1'};
+  chromeMock={storage:{local:{setAccessLevel:vi.fn(async()=>{}),get:vi.fn(async(key:string|null)=>structuredClone(key===null?values:{[key]:values[key]})),set:vi.fn(async(data:Record<string,unknown>)=>Object.assign(values,structuredClone(data))),remove:vi.fn(async(keys:string|string[])=>{for(const key of [keys].flat())delete values[key];})}},permissions:{contains:vi.fn(async()=>hasPermission),remove:vi.fn(async()=>true)},runtime:{id:'extension-id',getManifest:()=>({version:'1.0.2',action:{default_title:'Request this part'},optional_host_permissions:['https://*/*']}),getURL:(p:string)=>`chrome-extension://extension-id/${p}`,onMessage:{addListener:(l:typeof listener)=>{listener=l;}},onInstalled:{addListener:vi.fn()},onStartup:{addListener:vi.fn()}},alarms:{create:vi.fn(async()=>{}),onAlarm:{addListener:vi.fn()}},action:{getBadgeText:vi.fn(async()=>badge),setBadgeText:vi.fn(async({text}:{text:string})=>{badge=text;}),setBadgeBackgroundColor:vi.fn(async()=>{}),setBadgeTextColor:vi.fn(async()=>{}),setTitle:vi.fn(async()=>{})},tabs:{get:vi.fn(async()=>({id:42,url:record().draft.url}))},scripting:{executeScript:vi.fn(async()=>[{result:record().capture}])}};
   vi.stubGlobal('chrome',chromeMock);send(created());
   await import('../src/background');
 });
@@ -481,5 +481,72 @@ describe('team colors',()=>{
   it('keeps the theme, starting dark, and refuses anything else',async()=>{
     expect((await call({type:'settings'})).data.theme).toBe('dark');expect((await call({type:'set-theme',theme:'light'})).data.theme).toBe('light');
     expect(await call({type:'set-theme',theme:'blue' as any})).toMatchObject({ok:false});expect(values.theme).toBe('light');
+  });
+});
+describe('the daily update check',()=>{
+  const TAG='https://github.com/isriah/lancerlogin-part-requests-extension/releases/tag/';
+  const landed=(url:string,status=200)=>Object.defineProperty(new Response(null,{status}),'url',{value:url});
+  const github=(reply:(...args:any[])=>Promise<Response>)=>{const fake=vi.fn(reply);vi.stubGlobal('fetch',fake);return fake;};
+  const alarm=()=>chromeMock.alarms.onAlarm.addListener.mock.calls[0][0] as (a:{name:string})=>void;
+  const settled=()=>new Promise(done=>setTimeout(done,20));
+  it('schedules itself on install and startup, and asks nothing until then',async()=>{
+    expect(fetch).not.toHaveBeenCalled();
+    chromeMock.runtime.onInstalled.addListener.mock.calls[0][0]({reason:'install'});
+    chromeMock.runtime.onStartup.addListener.mock.calls[0][0]();
+    expect(chromeMock.alarms.create).toHaveBeenCalledTimes(2);
+    expect(chromeMock.alarms.create).toHaveBeenCalledWith('update-check',{delayInMinutes:1,periodInMinutes:60});
+    await settled();expect(fetch).not.toHaveBeenCalled();
+  });
+  it('asks GitHub when due, keeps the answer, and badges the toolbar',async()=>{
+    const fake=github(async()=>landed(`${TAG}v1.0.3`));
+    alarm()({name:'update-check'});
+    await vi.waitFor(()=>expect(badge).toBe('↑'));
+    expect(fake).toHaveBeenCalledTimes(1);expect(fake.mock.calls[0][0]).toBe('https://github.com/isriah/lancerlogin-part-requests-extension/releases/latest');
+    // Nothing about the device or the team goes with it.
+    expect(JSON.stringify(fake.mock.calls)).not.toContain(DEVICE_KEY);expect(JSON.stringify(fake.mock.calls)).not.toContain('team-site');
+    expect(values.updateCheck).toMatchObject({latest:'1.0.3',url:`${TAG}v1.0.3`});
+    expect(chromeMock.action.setBadgeBackgroundColor).toHaveBeenCalledWith({color:'#eeb822'});
+    expect(chromeMock.action.setTitle).toHaveBeenCalledWith({title:'Request this part. Update available: v1.0.3'});
+    expect((await call({type:'update-status'})).data).toMatchObject({current:'1.0.2',latest:'1.0.3',available:true,snoozed:false});
+  });
+  it('uses the team\'s secondary color once paired',async()=>{
+    values.brand={primary:'#0b3d91',secondary:'#f58220',organizationName:'Test Robotics Team A',checkedAt:1};
+    github(async()=>landed(`${TAG}v1.0.3`));
+    await call({type:'update-check'});
+    expect(chromeMock.action.setBadgeBackgroundColor).toHaveBeenCalledWith({color:'#f58220'});
+  });
+  it('waits a day between checks',async()=>{
+    values.updateCheck={latest:'1.0.2',url:`${TAG}v1.0.2`,checkedAt:Date.now()-60_000};
+    const fake=github(async()=>landed(`${TAG}v1.0.3`));
+    alarm()({name:'update-check'});alarm()({name:'something-else'});await settled();
+    expect(fake).not.toHaveBeenCalled();expect(badge).toBe('');
+    values.updateCheck.checkedAt=Date.now()-25*60*60*1000;
+    alarm()({name:'update-check'});
+    await vi.waitFor(()=>expect(badge).toBe('↑'));expect(fake).toHaveBeenCalledTimes(1);
+  });
+  it('fails silently and keeps the last answer',async()=>{
+    const last={latest:'1.0.3',url:`${TAG}v1.0.3`,checkedAt:Date.now()-25*60*60*1000};values.updateCheck={...last};
+    const fake=github(()=>Promise.reject(new TypeError('Failed to fetch')));
+    const answer=await call({type:'update-check'});
+    expect(answer.ok).toBe(true);expect(answer.data).toMatchObject({latest:'1.0.3',available:true,checkedAt:last.checkedAt});
+    expect(values.updateCheck).toEqual(last);expect(fake).toHaveBeenCalledTimes(1);expect(badge).toBe('↑');
+  });
+  it('clears its own badge once the version is current, and leaves another badge alone',async()=>{
+    badge='↑';github(async()=>landed(`${TAG}v1.0.2`));
+    expect((await call({type:'update-check'})).data).toMatchObject({available:false});
+    expect(badge).toBe('');expect(chromeMock.action.setTitle).toHaveBeenLastCalledWith({title:'Request this part'});
+    badge='3';github(async()=>landed(`${TAG}v1.0.3`));
+    expect((await call({type:'update-check'})).data).toMatchObject({available:true});
+    expect(badge).toBe('3');expect(chromeMock.action.setBadgeText).not.toHaveBeenCalledWith({text:'↑'});
+  });
+  it('Later hides that version for 3 days, badge included',async()=>{
+    github(async()=>landed(`${TAG}v1.0.3`));await call({type:'update-check'});expect(badge).toBe('↑');
+    expect(await call({type:'update-later',version:'1.0.2'})).toMatchObject({ok:false});
+    const later=await call({type:'update-later',version:'1.0.3'});
+    expect(later.data).toMatchObject({available:true,snoozed:true});expect(badge).toBe('');
+    expect(values.updateSnooze.version).toBe('1.0.3');expect(values.updateSnooze.until-Date.now()).toBeGreaterThan(3*24*60*60*1000-5000);
+    // A newer release than the one put off shows at once.
+    github(async()=>landed(`${TAG}v1.0.4`));
+    expect((await call({type:'update-check'})).data).toMatchObject({latest:'1.0.4',snoozed:false});expect(badge).toBe('↑');
   });
 });
